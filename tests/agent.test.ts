@@ -91,16 +91,17 @@ test("checks are recorded as skipped, never silently passed", () => {
 });
 
 test("decide maps each cause to its matched action", () => {
-  const item = (cause: WorkItem["cause"], confidence = 0.9): WorkItem => ({
+  const item = (cause: WorkItem["cause"], routed = false): WorkItem => ({
     source_attempt: "a", mandate_id: "m", bank: "HDFC", failed_at: 0,
-    notification_dispatch_at: 0, revoked_at: null, cause, confidence,
+    notification_dispatch_at: 0, revoked_at: null, cause, confidence: 0.9,
+    routed_to_exception_queue: routed,
   });
   assert.equal(decide(item("C1_EXECUTION_WINDOW"), 1, false), "reschedule");
   assert.equal(decide(item("C2_NOTIFICATION_FAIL"), 1, false), "refire_notification_then_reschedule");
   assert.equal(decide(item("C3_BALANCE_SHORTFALL"), 1, false), "reschedule");
   assert.equal(decide(item("C4_CANCELLATION"), 1, false), "stop");
   assert.equal(decide(item("C3_BALANCE_SHORTFALL"), 1, true), "stop", "an explicit revoke stops everything");
-  assert.equal(decide(item("C3_BALANCE_SHORTFALL", 0.4), 1, false), "escalate_to_human");
+  assert.equal(decide(item("C3_BALANCE_SHORTFALL", true), 1, false), "escalate_to_human");
   assert.equal(decide(item("C1_EXECUTION_WINDOW"), 4, false), "escalate_to_human");
   assert.equal(decide(item(null), 1, false), "escalate_to_human");
 });

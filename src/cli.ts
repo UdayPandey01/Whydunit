@@ -1,8 +1,16 @@
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import Database from "better-sqlite3";
+import { indicators } from "./exceptions.ts";
 import { runAgent } from "./agent/agent.ts";
 import type { WorkItem } from "./agent/agent.ts";
 import { HORIZON_DAYS, SEED } from "./config.ts";
+import { explainAttributions, explainDigest, explainExceptions, claudeExplainer, hasCredentials } from "./explain.ts";
+import type { Attribution } from "./explain.ts";
+import { buildReport, renderDigest } from "./report.ts";
+import type { Scored } from "./report.ts";
+import type { Support } from "./exceptions.ts";
 import { computeFeatures } from "./features.ts";
+import type { FeatureRow } from "./features.ts";
 import { observe } from "./observe.ts";
 import type { ObservedAttempt } from "./observe.ts";
 import { bootstrapCI, pairedDeltaCI, runPolicy, schedulesFor } from "./policy.ts";
@@ -223,6 +231,12 @@ function runAgentCommand(): void {
   const preds = new Map(
     readJsonl<Prediction>("data/predictions.jsonl").map((p) => [p.attempt_id, p]),
   );
+  if (!existsSync("data/exceptions.jsonl")) {
+    throw new Error("data/exceptions.jsonl missing -- run `npm run report` before the agent");
+  }
+  const routed = new Set(
+    readJsonl<{ attempt_id: string }>("data/exceptions.jsonl").map((e) => e.attempt_id),
+  );
 
   const byId = new Map(records.map((r) => [r.attempt_id, r]));
   const work: WorkItem[] = records
@@ -241,6 +255,7 @@ function runAgentCommand(): void {
         cause: p === undefined ? null : p.predicted,
         // Confidence is the model's own probability for the class it chose.
         confidence: p === undefined ? 0 : Math.max(...Object.values(p.proba)),
+        routed_to_exception_queue: routed.has(r.attempt_id),
       };
     });
 
@@ -266,13 +281,108 @@ function runAgentCommand(): void {
   console.log(`${AP} recovered ${s.recovered_amount.toLocaleString("en-IN")} rupees`);
 }
 
+type FeatureFile = FeatureRow & { label: Cause };
+
+async function runReport(): Promise<void> {
+  const RP = "[report]";
+  const rows = readJsonl<FeatureFile>("data/features.jsonl");
+  const preds = new Map(readJsonl<Prediction>("data/predictions.jsonl").map((p) => [p.attempt_id, p]));
+  const support = JSON.parse(readFileSync("data/support.json", "utf8")) as Support;
+  const world = new Map(readJsonl<WorldRecord>("data/world.jsonl").map((w) => [w.attempt_id, w]));
+
+  const scored: Scored[] = rows.map((r) => {
+    const p = preds.get(r.attempt_id);
+    if (p === undefined) throw new Error(`no prediction for ${r.attempt_id}`);
+    return {
+      row: r,
+      label: r.label,
+      predicted: p.predicted,
+      proba: p.proba as Record<Cause, number>,
+      amount: world.get(r.attempt_id)!.amount,
+    };
+  });
+
+  const report = buildReport(scored, support);
+  writeJsonl("data/exceptions.jsonl", report.exceptions);
+  writeFileSync("data/report.json", JSON.stringify(report, null, 2) + "\n");
+
+  const agentSummary = readAgentSummary();
+  const digest = renderDigest(report, agentSummary);
+  writeFileSync("data/digest.txt", digest.join("\n") + "\n");
+  for (const line of digest) console.log(`${RP} ${line}`);
+  console.log(`${RP}`);
+  console.log(`${RP} macro-F1 over ALL failures, routed or not: ${report.macro_f1_all.toFixed(3)}`);
+  console.log(`${RP} wrote data/report.json, data/exceptions.jsonl, data/digest.txt`);
+
+  if (!process.argv.includes("--explain")) {
+    console.log(`${RP} natural-language layer skipped (pass --explain to enable)`);
+    return;
+  }
+  if (!hasCredentials()) {
+    console.log(`${RP} --explain requested but no ANTHROPIC_API_KEY / ANTHROPIC_AUTH_TOKEN found; skipping`);
+    return;
+  }
+
+  // Everything above is already final. Nothing below changes a number, and its
+  // output goes to its own files that no other module reads.
+  const explain = claudeExplainer();
+  const attributions: Attribution[] = scored
+    .filter((s) => !report.exceptions.some((e) => e.attempt_id === s.row.attempt_id))
+    .slice(0, Number(process.env.EXPLAIN_LIMIT ?? 20))
+    .map((s) => toAttribution(s, world));
+  const attrText = await explainAttributions(attributions, explain);
+  const excText = await explainExceptions(report.exceptions.slice(0, 20), explain);
+  writeJsonl("data/explanations.jsonl", [...attrText, ...excText]);
+  writeFileSync("data/digest.md", (await explainDigest(report, digest, explain)) + "\n");
+  console.log(`${RP} wrote data/explanations.jsonl (${attrText.length + excText.length}) and data/digest.md`);
+}
+
+function toAttribution(s: Scored, world: Map<string, WorldRecord>): Attribution {
+  const w = world.get(s.row.attempt_id)!;
+  const ev = indicators(s.row.features)[s.predicted];
+  return {
+    attempt_id: s.row.attempt_id,
+    mandate_id: s.row.mandate_id,
+    bank: s.row.bank,
+    timestamp: s.row.timestamp,
+    amount: w.amount,
+    cause: s.predicted,
+    confidence: s.proba[s.predicted],
+    evidence: ev.length > 0 ? ev : [`decline code ${w.error_code ?? "none"}; no single observable is decisive`],
+    action_taken: ACTION_FOR[s.predicted],
+    outcome: "see audit log",
+  };
+}
+
+const ACTION_FOR: Record<Cause, string> = {
+  C1_EXECUTION_WINDOW: "rescheduled outside the NPCI restricted window",
+  C2_NOTIFICATION_FAIL: "re-dispatched the pre-debit notification, then rescheduled 26h later",
+  C3_BALANCE_SHORTFALL: "rescheduled later in the cycle, targeting the next likely credit",
+  C4_CANCELLATION: "stopped; no further retries",
+};
+
+function readAgentSummary(): Record<string, number> | null {
+  if (!existsSync("data/agent.db")) return null;
+  const db = new Database("data/agent.db", { readonly: true });
+  const out: Record<string, number> = {};
+  for (const r of db.prepare("SELECT outcome k, COUNT(*) n FROM audit_log GROUP BY outcome").all() as { k: string; n: number }[]) {
+    out[r.k] = r.n;
+  }
+  db.close();
+  return out;
+}
+
 function main(): void {
   const command = process.argv[2];
+  if (command === "report") {
+    void runReport();
+    return;
+  }
   if (command === "features") return buildFeatures();
   if (command === "agent") return runAgentCommand();
   if (command === "policy") return runPolicies();
   if (command !== "generate") {
-    console.error("usage: node src/cli.ts <generate|features|policy|agent>");
+    console.error("usage: node src/cli.ts <generate|features|report|policy|agent>");
     process.exit(1);
   }
 

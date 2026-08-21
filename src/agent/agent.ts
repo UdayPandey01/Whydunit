@@ -12,8 +12,6 @@ import { openDb } from "./db.ts";
 import type { Db } from "./db.ts";
 import { fire } from "./psp.ts";
 
-export const ESCALATE_CONFIDENCE = 0.6;
-
 // The agent may only act inside the window it can actually observe. Beyond this
 // the world would still answer, but we would be booking recoveries in a period
 // the simulation never generated -- so instead the agent hands those to a human.
@@ -29,6 +27,10 @@ export type WorkItem = {
   revoked_at: number | null;
   cause: Cause | null;
   confidence: number;
+  // Set by src/exceptions.ts. The router is the single authority on what a human
+  // sees; Phase 3's bare confidence threshold was a placeholder and is gone, so
+  // two thresholds can never disagree.
+  routed_to_exception_queue: boolean;
 };
 
 export type AgentOptions = {
@@ -60,7 +62,7 @@ function checkpoint(): void {
 export function decide(item: WorkItem, attemptNo: number, revokedBefore: boolean): ActionName {
   if (revokedBefore || item.cause === "C4_CANCELLATION") return "stop";
   if (attemptNo > MAX_INTERVENTIONS_PER_CYCLE) return "escalate_to_human";
-  if (item.confidence < ESCALATE_CONFIDENCE) return "escalate_to_human";
+  if (item.routed_to_exception_queue) return "escalate_to_human";
   switch (item.cause) {
     case "C1_EXECUTION_WINDOW":
       return "reschedule";

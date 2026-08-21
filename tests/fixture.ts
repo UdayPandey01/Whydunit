@@ -34,8 +34,11 @@ export function buildFixture(seed = 31, mandates = 120): Omit<AgentOptions, "dbP
         notification_dispatch_at: Date.parse(o.notification.dispatched_at),
         revoked_at: revoke === undefined ? null : Date.parse(revoke.timestamp),
         cause: ruleCause(featById.get(r.attempt_id)!),
-        // Deterministically low for ~12%, so escalate_to_human is exercised too.
+        // Deterministically routes ~12%, so escalate_to_human is exercised too.
+        // The real router lives in src/exceptions.ts; the fixture only needs a
+        // stable flag, not a good one.
         confidence: hash32(r.attempt_id) % 100 < 12 ? 0.45 : 0.9,
+        routed_to_exception_queue: hash32(r.attempt_id) % 100 < 12,
       };
     });
 
