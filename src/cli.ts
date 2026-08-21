@@ -3,7 +3,8 @@ import Database from "better-sqlite3";
 import { indicators } from "./exceptions.ts";
 import { runAgent } from "./agent/agent.ts";
 import type { WorkItem } from "./agent/agent.ts";
-import { HORIZON_DAYS, SEED } from "./config.ts";
+import { COST_WRONGFUL_RETRY, DEFAULT_COST_RATIO, HORIZON_DAYS, SEED } from "./config.ts";
+import { stopThreshold } from "./decision.ts";
 import { explainAttributions, explainDigest, explainExceptions, claudeExplainer, hasCredentials } from "./explain.ts";
 import type { Attribution } from "./explain.ts";
 import { buildReport, renderAttribution, renderDigest } from "./report.ts";
@@ -104,6 +105,11 @@ function summarise(world: WorldRecord[], observations: ReturnType<typeof observe
   ui.note("Ground truth above is hidden from every downstream stage.");
 }
 
+function argValue(flag: string): string | undefined {
+  const i = process.argv.indexOf(flag);
+  return i === -1 ? undefined : process.argv[i + 1];
+}
+
 function readJsonl<T>(path: string): T[] {
   return readFileSync(path, "utf8").trim().split("\n").map((l) => JSON.parse(l) as T);
 }
@@ -184,9 +190,11 @@ function runPolicies(): void {
   const { records, customers, mandates } = generateWorldFull();
   const failures = records.filter((r) => !r.success);
   const preds = readJsonl<Prediction>("data/predictions.jsonl");
-  const predictions = new Map(preds.map((p) => [p.attempt_id, p.predicted]));
+  const probabilities = new Map(preds.map((p) => [p.attempt_id, p.proba as Record<Cause, number>]));
   const rulePredictions = new Map(preds.map((p) => [p.attempt_id, p.rule_predicted]));
-  if (predictions.size === 0) throw new Error("no predictions -- run eval/evaluate.py first");
+  const ratio = Number(argValue("--cost-ratio") ?? DEFAULT_COST_RATIO);
+  const threshold = stopThreshold(ratio);
+  if (probabilities.size === 0) throw new Error("no predictions -- run eval/evaluate.py first");
 
   const totalAmount = failures.reduce((a, r) => a + r.amount, 0);
   const rupeeRate = (rows: PolicyOutcome[]) => {
@@ -198,11 +206,49 @@ function runPolicies(): void {
 
   ui.section("RECOVERY POLICY COMPARISON");
   ui.note(`${failures.length.toLocaleString("en-IN")} failed payments · ${ui.inr(totalAmount)} at risk · retry budget 3 per failure`);
+  ui.note(`stop rule: P(C4) ≥ ${threshold.toFixed(3)} (cost ratio ${ratio}:1 — a wrongful stop costs a whole mandate, a wrongful retry costs one retry)`);
+
+  // Show the curve, not just the chosen point: the sweep is the evidence that the
+  // operating point was picked rather than tuned until it looked good.
+  const sweep: { threshold: number; rate: number; amount: number; retries: number; stopped: number; net?: number }[] = [];
+  for (let t = 0.5; t <= 0.9501; t += 0.05) {
+    const th = Math.round(t * 100) / 100;
+    const sched = schedulesFor(probabilities, rulePredictions, th).model_policy!;
+    const out = runPolicy(failures, customers, mandates, sched);
+    sweep.push({
+      threshold: th,
+      rate: rupeeRate(out),
+      amount: out.filter((r) => r.recovered).reduce((a, r) => a + r.amount, 0),
+      retries: out.reduce((a, r) => a + r.retries_spent, 0),
+      stopped: out.filter((r) => r.retries_spent === 0).length,
+    });
+  }
+  // Recovery alone rises monotonically with the threshold, so "pick the maximum"
+  // is a corner, not a choice. Net value prices the retries it costs, using the
+  // same cost matrix that produced the threshold: one retry is COST_WRONGFUL_RETRY
+  // of a mandate.
+  const retryCost = COST_WRONGFUL_RETRY * (totalAmount / failures.length);
+  for (const r of sweep) r.net = r.amount - r.retries * retryCost;
+  const best = [...sweep].sort((a, b) => (b.net ?? 0) - (a.net ?? 0))[0]!;
+  ui.table("STOP-THRESHOLD SWEEP", ["P(C4) ≥", "₹ recovered", "Retries", "Net of retry cost", ""],
+    sweep.map((r) => {
+      const chosen = Math.abs(r.threshold - threshold) < 0.025;
+      const tone = chosen ? c.cyanBold : r.threshold === best.threshold ? c.green : c.gray;
+      return [
+        tone(r.threshold.toFixed(2)),
+        tone(ui.inrShort(r.amount)),
+        tone(r.retries.toLocaleString("en-IN")),
+        tone(ui.inrShort(r.net!)),
+        chosen ? c.cyan("← in use") : r.threshold === best.threshold ? c.green("← best net") : "",
+      ];
+    }), [8, 12, 8, 18, 11], ["r", "r", "r", "r", "l"]);
+  ui.note(`net = ₹ recovered − retries × ${ui.inr(retryCost)} (one retry at ${COST_WRONGFUL_RETRY} of a mandate)`);
+  ui.note(`sweep maximises net at P(C4) ≥ ${best.threshold.toFixed(2)}; cost model selects ${threshold.toFixed(3)}`);
 
   const results: Record<string, { rate: number; ci: [number, number]; retries: number; retries_ci: [number, number]; recovered: number; spent: number }> = {};
   const outcomes: Record<string, PolicyOutcome[]> = {};
   const tableRows: string[][] = [];
-  for (const [name, schedule] of Object.entries(schedulesFor(predictions, rulePredictions))) {
+  for (const [name, schedule] of Object.entries(schedulesFor(probabilities, rulePredictions, threshold))) {
     const out = runPolicy(failures, customers, mandates, schedule);
     outcomes[name] = out;
     const rate = rupeeRate(out);
@@ -227,21 +273,39 @@ function runPolicies(): void {
   // The whole point of asking for CIs: say plainly whether the model is
   // distinguishable from the thing it is supposed to beat.
   const deltas: Record<string, { delta: number; ci: [number, number] }> = {};
+  const retryDeltas: Record<string, { delta: number; ci: [number, number] }> = {};
   const deltaRows: string[][] = [];
   for (const rival of ["naive_retry", "window_aware_retry", "rule_policy", "oracle_policy"]) {
     const d = pairedDeltaCI(outcomes.model_policy!, outcomes[rival]!, rupeeRate);
+    // Retries are the other half of the question: matching on money while
+    // spending less is a real win, and it needs an interval like anything else.
+    const rd = pairedDeltaCI(outcomes.model_policy!, outcomes[rival]!, retriesPer);
     deltas[rival] = d;
+    retryDeltas[rival] = rd;
     const straddles = d.ci[0] <= 0 && d.ci[1] >= 0;
     deltaRows.push([
       c.gray(POLICY_LABEL[rival] ?? rival),
       (d.delta >= 0 ? c.green : c.red)(`${d.delta >= 0 ? "+" : ""}${(100 * d.delta).toFixed(1)}pp`),
       c.gray(`[${(100 * d.ci[0]).toFixed(1)}, ${(100 * d.ci[1]).toFixed(1)}]`),
-      straddles ? c.yellow("not significant") : c.green("significant"),
+      straddles ? c.yellow("ties") : c.green("wins"),
     ]);
   }
-  ui.table("WHYDUNIT vs EACH BASELINE  (paired, 95% CI)",
+  ui.table("WHYDUNIT vs EACH BASELINE  (₹ recovered, paired, 95% CI)",
     ["Compared with", "Delta", "95% CI", "Verdict"],
     deltaRows, [23, 8, 16, 15], ["l", "r", "l", "l"]);
+
+  ui.table("WHYDUNIT vs EACH BASELINE  (retries per failure, lower is better)",
+    ["Compared with", "Delta", "95% CI", "Verdict"],
+    ["naive_retry", "window_aware_retry", "rule_policy", "oracle_policy"].map((rival) => {
+      const rd = retryDeltas[rival]!;
+      const straddles = rd.ci[0] <= 0 && rd.ci[1] >= 0;
+      return [
+        c.gray(POLICY_LABEL[rival] ?? rival),
+        (rd.delta <= 0 ? c.green : c.red)(`${rd.delta >= 0 ? "+" : ""}${rd.delta.toFixed(2)}`),
+        c.gray(`[${rd.ci[0].toFixed(2)}, ${rd.ci[1].toFixed(2)}]`),
+        straddles ? c.yellow("ties") : rd.delta < 0 ? c.green("cheaper") : c.red("costlier"),
+      ];
+    }), [23, 8, 16, 15], ["l", "r", "l", "l"]);
 
   // Where does the recovery actually come from? Split by TRUE cause.
   const causeOf = new Map(failures.map((f) => [f.attempt_id, f.cause!]));
@@ -270,7 +334,7 @@ function runPolicies(): void {
   ui.note(`Naive retry recovers 0% of execution-window failures: T+24/72/168h all keep the same hour.`);
   ui.note(`${wasted} retries still burned on silent churn — unrecoverable and undetected.`);
 
-  writeFileSync("data/policy.json", JSON.stringify({ n_failures: failures.length, total_amount: totalAmount, results, paired_deltas: deltas }, null, 2) + "\n");
+  writeFileSync("data/policy.json", JSON.stringify({ n_failures: failures.length, total_amount: totalAmount, cost_ratio: ratio, stop_threshold: threshold, sweep, results, paired_deltas: deltas, paired_retry_deltas: retryDeltas }, null, 2) + "\n");
   console.log(`${PP} wrote data/policy.json`);
 }
 
@@ -312,6 +376,7 @@ function runAgentCommand(): void {
         cause: p === undefined ? null : p.predicted,
         // Confidence is the model's own probability for the class it chose.
         confidence: p === undefined ? 0 : Math.max(...Object.values(p.proba)),
+        proba: p === undefined ? null : (p.proba as Record<Cause, number>),
         routed_to_exception_queue: routed.has(r.attempt_id),
       };
     });
