@@ -232,3 +232,177 @@ and a hard error, not an `if (x !== null)`. This is the second defect in this
 project found by reading execution order rather than output — INCIDENTS #4 was
 the first — and both were invisible precisely because determinism made stale data
 look identical to fresh data.
+
+---
+
+## Backfill note
+
+Entries #7–#9 are backfilled. They are real, and every number in them was measured,
+but they were written after the fact rather than as they happened — which is
+exactly what this file is supposed to prevent. #7 and #9 were reconstructed from
+measurements already recorded in DESIGN.md; #8's decisive diagnostic (the horizon
+sweep) did not exist when the finding was made and was run on 2026-08-22 to test a
+claim that until then had only been an argument.
+
+---
+
+## #7 — 2026-08-21 (backfilled) — The abstention rule made the queue worse than no queue
+
+**Symptom.** The exception router, built to the specified rule "route when fewer
+than 2 prior attempts", sent 65.7% of failures to human review and left macro-F1
+on the retained set at 0.888 — *below* the 0.901 achieved by classifying
+everything and routing nothing.
+
+**First hypothesis.** The threshold was simply too aggressive; a smaller prior-count
+cutoff would trade volume for quality along a normal curve.
+
+**The diagnostic that disproved it.** Splitting the routed set by what else was
+observable. Of the 721 failures the rule caught, a large share were attempts sitting
+plainly inside the NPCI window, or carrying a revoke webhook — cases with 98-100%
+label purity that need no history at all. The rule was not on a volume/quality
+curve; it was removing the *easiest* cases. That is why retained quality fell
+rather than rose.
+
+**Root cause.** The rule conflated "no history" with "no signal". History is only
+decisive when nothing else is. Written as a blanket condition it fires hardest on
+early attempts, which are disproportionately the trivially-attributable ones.
+
+**Fix and what it traded away.** The rule now fires only when no single observable
+already settles the call. Retention rose to 79.0% at macro-F1 0.931. The trade is
+that a payment with thin history *and* one decisive observable is now auto-handled
+where a human would previously have seen it — deliberate, since the observable is
+98-100% pure.
+
+**What it changed about the design.** Both figures — retained macro-F1 and
+all-failures macro-F1 — are printed on every run, side by side. A queue that costs
+quality can no longer hide behind the fact that its own retained number looks good.
+
+---
+
+## #8 — 2026-08-21 (backfilled) — Silent-churn recall was 0.000 and the model was blamed
+
+**Symptom.** At a 90-day horizon the classifier recalled 100% of explicit-webhook
+cancellations and **0.000** of silent ones. Silent churn is the case the project
+exists to solve.
+
+**First hypothesis.** A modelling failure. C4 is the smallest class, so the obvious
+reading was that the gradient booster had collapsed it into C3 and needed class
+weighting or a threshold adjustment.
+
+**The diagnostic that disproved it.** Not a model change — a horizon sweep. C4 is
+defined by *invariance*: nothing fixes it. Invariance is a statement about repeated
+attempts under varied conditions, so it cannot be observed at all unless a mandate
+has several. At 90 days a monthly mandate gets at most 3 attempts, so a failure has
+at most 2 priors and 19 of 145 C4 attempts had none. Re-running at 90/180/270/360
+days settled it: the model's advantage over a hand-written rule goes
++0.001 → +0.141 → +0.181 → +0.201 macro-F1 as attempts per mandate grow. Nothing
+about the model changed across those runs. The signal was absent, not missed.
+
+**Root cause.** A data limitation misread as a model limitation. The generator's
+monthly frequency over a short horizon gave the identifying signature no room to
+appear.
+
+**Fix and what it traded away.** No model change was made, which is the point. The
+horizon became a swept parameter (`WHYDUNIT_HORIZON`) so the question is answerable
+rather than arguable. Cost: every headline number is now horizon-dependent and has
+to be reported with its horizon attached.
+
+**What it changed about the design.** Before concluding that a model cannot learn
+something, vary the amount of evidence and watch the curve. A flat curve indicts the
+model; a rising one indicts the dataset. This is now the first check for any
+"the model can't do X" claim here.
+
+---
+
+## #9 — 2026-08-21 (backfilled) — The model tied four if-statements, and the tie was the finding
+
+**Symptom.** At 90 days the gradient booster was statistically indistinguishable
+from a four-line expert rule: paired macro-F1 +0.006 [−0.006, +0.018] out-of-fold,
+and significantly *worse* on unseen banks at −0.058 [−0.087, −0.030].
+
+**First hypothesis.** Under-fitting or bad features — the usual reading of a model
+that cannot beat a rule.
+
+**The diagnostic that disproved it.** Bucketing failures by which single observable
+settled them. 40% were decided by one boolean at 98-100% purity: a revoke webhook,
+a failed delivery receipt, a sub-24h dispatch, or the NPCI window. A rule encodes
+exactly those four facts, so on that 40% it is not an approximation of the model —
+it is the same function. Aggregate macro-F1 was dominated by cases where no model
+was needed. On the hard remainder the model already led, 0.390 to the rule's 0.233.
+
+**Root cause.** The comparison was being run where the two methods cannot differ.
+The model's only possible edge is silent churn, which is defined by invariance over
+repeated attempts — and a rule evaluating one attempt in isolation has no way to
+express "nothing has ever fixed this". At 90 days there were too few attempts for
+that edge to exist at all.
+
+**Fix and what it traded away.** Nothing was tuned. Two real bugs were fixed first
+(#10), and the horizon was swept. The gap then appeared and grew: +0.141 at 180d,
++0.181 at 270d, +0.201 at 360d. The trade is that the honest claim is narrow —
+the model earns its keep on silent churn and on long histories, not in general.
+
+**What it changed about the design.** A hand-written expert rule is now a permanent
+baseline in `eval/evaluate.py`, reported on every split. It is the bar that matters:
+majority-class and decline-code lookup are too weak to be informative, and without
+the rule the model's 0.935 at 90 days would have read as a success.
+
+---
+
+## #10 — 2026-08-22 — Two policy bugs, and the smaller one was hiding behind the larger
+
+**Symptom.** The model-driven recovery policy was *more efficient but less
+effective* than a hand-written rule: at a 270-day horizon it recovered 52.3% of
+at-risk rupees against the rule's 52.6%, paired delta −0.4pp [−1.2, +0.6]. It spent
+fewer retries doing it, which made the result read like a deliberate trade rather
+than a defect.
+
+**First hypothesis.** One bug: `decide()` stopped whenever C4 was the argmax class,
+so any C3 payment mistakenly leaning C4 was abandoned along with its full value.
+Fixing the stop rule should close the gap.
+
+**The diagnostic that disproved it — as the whole story.** Fixing the stop rule
+alone, with the world generator untouched, moved recovery from 52.3% to 53.5% at
+270 days: +1.26pp. Real, and enough to flip the model from 0.4pp behind the rule to
+0.9pp ahead, but nowhere near the size of the effect. Meanwhile the *oracle* policy
+— which knows the true cause — was itself capped at 54.7%. A ceiling that low with
+perfect information is not a policy problem. It pointed at the data.
+
+**Root cause (the larger bug).** The world generator kept issuing debit attempts
+after a mandate had been explicitly revoked. In production a revoke kills the
+mandate at the PSP and no further debit is ever presented, so those attempts were
+invented failures that nothing could recover. They inflated C4 from 13% to 43% of
+failures and dragged every recovery rate down, the oracle ceiling included. The
+argmax stop rule looked catastrophic mainly because it was operating in a world
+where nearly half of all failures genuinely were cancellations.
+
+**Fix and what it traded away.** Two changes. (1) No attempt is generated at or
+after an explicit revoke; silent churn is untouched, so those mandates keep failing
+— that is the hard case and the point. (2) Stopping now requires
+P(C4) ≥ ratio/(ratio+1) from a cost matrix in `src/config.ts`, defaulting to a
+wrongful stop costing a full mandate against a wrongful retry costing 0.05 of one
+(threshold 0.952, overridable with `--cost-ratio`); below the threshold the agent
+acts on the best *retryable* cause instead of abandoning the money.
+
+The trade was real. Fixing the revoke bug made `revoked_before_attempt` constant
+and `hours_since_revoke` entirely NaN, which HistGradientBoosting cannot bin at all
+— the pipeline crashed until degenerate columns were dropped at fit time and named
+in `metrics.json`. It also deleted the expert rule's only route to C4, and with it
+the C4 arm of the exception router's observable-conflict detector.
+
+**What it changed about the design.** Three things. The stop rule is a shared
+module (`src/decision.ts`) used by both the live agent and the offline comparison,
+so the two cannot drift. The threshold sweep is printed on every policy run with a
+net-value column priced from the same cost matrix, because recovery alone rises
+monotonically across 0.50–0.95 and "pick the maximum" would be a corner rather than
+a choice. And the horizon is a swept parameter, which immediately exposed that
+`TIME_SPLIT_DAY` was a fixed day-60 boundary: the time split ran 67/33 at 90 days
+and 17/83 at 360, so those columns were never comparable across horizons.
+
+**What it did not fix.** The stated target was for the model to beat the rule on
+rupees *and* retries at 180 days with a CI clear of zero. It does not. Across all
+four horizons the money difference straddles zero (90d +0.11pp, 180d −0.24pp,
+270d +0.14pp, 360d +0.38pp). The model is significantly cheaper from 180 days
+(−0.078, −0.153, −0.190 retries per failure, all CIs excluding zero) and
+significantly better at attribution (+0.141 to +0.201 macro-F1), but on recovered
+revenue it ties. Per the acceptance rule agreed in advance, the rule stays the
+production retry policy.

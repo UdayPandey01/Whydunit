@@ -21,6 +21,7 @@ without double-firing. Claude writes prose about the results and touches nothing
 | `src/rng.ts` | mulberry32 seeded PRNG, draw helpers, FNV-1a `hash32`. |
 | `src/bootstrap.ts` | Cluster bootstrap by mandate. One implementation, so every CI agrees. |
 | `src/schedule.ts` | NPCI-window avoidance, salary-date targeting, billing-cycle key. |
+| `src/decision.ts` | Cost-sensitive stop rule. Shared by the agent and the offline policy. |
 | `src/world/{window,notification,balance,churn}.ts` | The four processes. Each answers only "would I block this?" |
 | `src/world/generate.ts` | Draws the population, steps the horizon, records the emergent cause. |
 | `src/world/replay.ts` | Counterfactual adjudication: what the four would say at another time. |
@@ -100,6 +101,13 @@ reads `explanations.jsonl` or `digest.md` back.
   `multi_cause` flag — two or more independent indicators firing at once. A much
   weaker detector (17% recall, 45% precision against the hidden flag), and the only
   one that respects the boundary.
+- **Stopping is cost-sensitive, not argmax.** Argmax treats a wrongful stop and a
+  wrongful retry as equally bad; one forfeits a mandate, the other costs a retry.
+  The threshold comes from that ratio, and the sweep is printed on every run with a
+  net-value column, because recovery rises monotonically across 0.50–0.95 and
+  picking the maximum would be a corner rather than a choice.
+- **No debit is generated after an explicit revoke.** A revoked mandate is dead at
+  the PSP. Silent churn is deliberately untouched — those mandates keep failing.
 - **The exception router is the single authority on escalation.** Phase 3's bare
   confidence threshold is gone, so two thresholds can never disagree.
 - **`report` and `digest` are separate stages.** The agent needs the exception
@@ -113,59 +121,44 @@ reads `explanations.jsonl` or `digest.md` back.
 
 ## 5. Results
 
-**Classification (macro-F1, 95% cluster-bootstrap CI, n=1000).** The model is not
-distinguishable from a four-line expert rule, and is significantly *worse* on
-unseen banks. Nothing was tuned in response.
+Horizon is a swept parameter (`WHYDUNIT_HORIZON`); every figure below carries its
+horizon. Two policy bugs were fixed first — see INCIDENTS #10 — so these supersede
+all earlier numbers.
 
-| split | model | expert rule | paired model − rule |
-|---|---|---|---|
-| mandate | 0.935 | 0.930 | **+0.004 [−0.014, +0.023]** |
-| bank | 0.808 | 0.866 | **−0.058 [−0.087, −0.030]** |
-| time | 0.878 | 0.872 | **+0.006 [−0.007, +0.021]** |
-| out-of-fold n=1098 | 0.901 | 0.895 | **+0.006 [−0.006, +0.018]** |
+**Classification, macro-F1 out-of-fold, model minus hand-written expert rule
+(paired, 95% cluster bootstrap).** The model's entire edge is silent churn, which a
+single-attempt rule cannot express, so the edge only exists once mandates have
+enough history for invariance to show.
 
-40% of failures are settled by one directly-observed boolean: revoke webhook (n=88,
-C4 100%), receipt FAILED (n=66, C2 100%), dispatch <24h (n=75, C2 99%), inside the
-NPCI window (n=208, C1 98%). Aggregate macro-F1 is dominated by that trivial 40%.
-On the hard 60% the model does add signal (0.390 vs the rule's 0.233) but it never
-converts, because there the right action is "retry later" either way.
+| horizon | failures | ECE | model − rule | verdict |
+|---|---|---|---|---|
+| 90d | 975 | 0.064 | +0.001 [−0.007, +0.008] | ties |
+| 180d | 2,114 | 0.080 | **+0.141 [+0.116, +0.163]** | wins |
+| 270d | 3,116 | 0.093 | **+0.181 [+0.158, +0.198]** | wins |
+| 360d | 4,264 | 0.061 | **+0.201 [+0.181, +0.218]** | wins |
 
-**Silent churn recall is 0.000** (explicit-webhook C4 is 1.000). C4 is defined by
-invariance, but at a 90-day horizon a failure has at most 2 priors, so the
-signature has no room to appear. Figures in this section are from that 90-day
-configuration; `HORIZON_DAYS` has since been raised to 360, which changes the base
-rates (C4 becomes the largest class) and is why two base-rate tests now fail.
+ECE stays at or below 0.093 on every mandate split, so probabilities are
+trustworthy enough to threshold on directly; no isotonic calibration was fitted.
 
-**Recovery (rupees recovered / at risk, paired Δ vs `model_policy`).**
+**Recovery, rupees recovered / at risk, and retries per failure.** Stopping uses
+P(C4) ≥ 0.952, derived from a cost matrix where a wrongful stop forfeits a whole
+mandate and a wrongful retry costs 0.05 of one.
 
-| policy | recovery | retries/failure | paired Δ |
-|---|---|---|---|
-| do_nothing | 0.0% | 0.00 | — |
-| naive_retry T+24/72/168h | 31.6% | 2.54 | −27.0pp [−32.3, −22.1] |
-| window_aware_retry | 46.3% | 2.22 | −12.4pp [−17.6, −7.6] |
-| **rule_policy** | 57.9% | 1.55 | **−0.8pp [−2.6, +0.1]** |
-| model_policy | 58.7% | 1.51 | — |
-| oracle_policy | 60.4% | 1.39 | +1.7pp |
+| horizon | naive | rule | model | oracle | Δ₹ vs rule | Δretries vs rule |
+|---|---|---|---|---|---|---|
+| 90d | 34.4% | 68.4% | 68.5% | 70.2% | +0.11pp [−0.46, +0.77] | −0.006 [−0.015, +0.001] |
+| 180d | 30.9% | 64.4% | 64.1% | 66.0% | −0.24pp [−0.58, +0.04] | **−0.078 [−0.106, −0.052]** |
+| 270d | 33.3% | 62.9% | 63.1% | 64.8% | +0.14pp [−0.56, +0.79] | **−0.153 [−0.191, −0.119]** |
+| 360d | 30.5% | 61.4% | 61.8% | 62.8% | +0.38pp [−0.07, +0.76] | **−0.190 [−0.235, −0.151]** |
 
-Naive retry recovers **0.0%** of C1: every one of T+24/72/168h preserves the hour and
-lands back in the NPCI window. Half the gain over naive comes from knowing that
-rule, not from the classifier.
+**The rule remains the production retry policy.** The agreed bar was to beat it on
+rupees *and* retries with a CI clear of zero; on rupees the difference straddles
+zero at all four horizons. The model is significantly cheaper from 180d and
+significantly better at attribution, so it earns its place in the exception queue
+and the merchant report — but not, on this evidence, in the retry decision.
 
-**Exception queue.** 231 routed (21.0%): 211 insufficient history, 29 multi-cause
-conflict, 16 ambiguous top-two. `outside_training_support` fires **0 times** on the
-deployed model because all five banks are well represented; under the bank-holdout
-model it fires on 43.1%, which is how the rule was verified rather than assumed.
-
-The "<2 prior attempts" rule was **narrowed to fire only when no single observable
-settles the call**. As literally specified it routed 65.7% and left macro-F1 on the
-retained set at 0.888 — *below* the 0.901 of no routing at all, because it swept
-away easy in-window and revoke-webhook cases and kept the residue. Narrowed, it
-retains 79.0% at 0.931. Both figures are printed on every run so the queue can
-never quietly cost quality.
-
-The queue costs recovery: the agent recovers ₹292,888 with it against ₹385,691
-without, because 231 attempts go to humans instead of being retried. That is a
-merchant's call to make, so both numbers are reported.
+Naive retry still recovers **0.0%** of execution-window failures: T+24/72/168h all
+preserve the hour and land back inside the NPCI window.
 
 ## 6. Not built yet
 
@@ -190,6 +183,9 @@ report, not the demo surface.
 ```bash
 npm install
 python3.11 -m venv .venv && .venv/bin/pip install scikit-learn numpy
+WHYDUNIT_HORIZON=180 npm run all   # any horizon; default 270
+npm run policy -- --cost-ratio 10  # override the stop threshold
+
 npm run demo         # the dashboard: reads finished artifacts, computes nothing
 npm run inspect -- att_000334    # one payment, end to end
 
