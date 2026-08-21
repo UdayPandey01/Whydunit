@@ -1,2 +1,5 @@
 node_modules/
 data/*.jsonl
+.venv/
+data/*.pkl
+data/*.json

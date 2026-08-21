@@ -68,3 +68,39 @@ do produce worse — in exchange for the guarantee that no code is a label alias
 remembered. `tests/baserates.test.ts` fails the build if any decline code exceeds
 95% purity or ever appears under only one cause, and `npm run generate` prints the
 purity table on every run so the number is never out of sight.
+
+---
+
+## #3 — 2026-08-21 — A diagnostic counted more retries than existed
+
+**Symptom.** The policy report printed, on adjacent lines, that `model_policy` spent
+123 retries on C4 attempts in total and 148 retries on silent-churn attempts. Silent
+churn is a subset of C4, so the subset was larger than the set containing it.
+
+**First hypothesis.** A double-count in the retry accumulator — the same outcome
+being summed twice across policy variants sharing an array.
+
+**The diagnostic that disproved it.** The C4 total and the silent total were summed
+from the same `outcomes.model_policy` array in the same loop, so a double-count
+would have inflated both equally and preserved the ordering. It did not. The two
+sums differed in their *filter*, not their arithmetic.
+
+**Root cause.** `churned_at` is a property of the **mandate**, not of the attempt. It
+is set on every attempt of a mandate that cancels at any point, including attempts
+that happened *before* the cancellation and failed for an entirely different reason.
+The silent-churn filter tested `churned_at !== null && !churn_emits_event`, which
+selects "attempts belonging to a mandate that silently churns eventually" — a
+strictly larger set than "attempts whose cause is silent churn". The C4 filter tested
+`cause === "C4_CANCELLATION"`, which is attempt-scoped and correct.
+
+**Fix and what it traded away.** The filter now tests
+`cause === "C4_CANCELLATION" && !churn_emits_event`. Nothing was traded; the previous
+number was simply wrong. It never reached a committed result, and it never touched
+training, features or the observation boundary — only a printed diagnostic.
+
+**What it changed about the design.** Mandate-scoped and attempt-scoped state read
+identically at the call site (`f.world.churned_at` vs `f.cause`) while meaning
+different things, and nothing in the types distinguishes them. The lesson recorded
+here is that any filter reading `world.churned_at` on an attempt row is suspect and
+should be scoped by `cause` instead. That is worth remembering into Phase 3, where
+the agent will hold per-mandate state and ask per-attempt questions of it.
