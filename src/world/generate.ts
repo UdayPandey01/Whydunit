@@ -146,6 +146,13 @@ export function generateWorldFull(opts: GenerateOptions = {}): World {
       const ts = istMs(year, month, day, hour, minute);
       if (ts < START_MS || ts >= endMs || ts <= mandate.created_at) continue;
 
+      // An explicit mandate.revoked kills the mandate at the PSP: the merchant is
+      // told, and no further debit is ever presented. Generating attempts after it
+      // invented failures that cannot happen, inflating C4 and dragging every
+      // recovery rate down. Silent churn is deliberately untouched -- those
+      // mandates keep being debited and keep failing, which is the hard case.
+      if (mandate.churned_at !== null && mandate.churn_emits_event && ts >= mandate.churned_at) continue;
+
       const leadHours = bernoulli(rng, LATE_DISPATCH_RATE)
         ? uniform(rng, LATE_LEAD_HOURS_MIN, LATE_LEAD_HOURS_MAX)
         : uniform(rng, NOTIFY_LEAD_HOURS_MIN, NOTIFY_LEAD_HOURS_MAX);

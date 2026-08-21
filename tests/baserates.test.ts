@@ -1,5 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { HORIZON_DAYS, N_MANDATES } from "../src/config.ts";
 import { generateWorld } from "../src/world/generate.ts";
 import type { Cause } from "../src/world/types.ts";
 
@@ -10,8 +11,30 @@ const share = (n: number) => n / fails.length;
 const byCause = new Map<Cause, number>();
 for (const f of fails) byCause.set(f.cause!, (byCause.get(f.cause!) ?? 0) + 1);
 
-test("run size lands near the 2000-mandate / 90-day target", () => {
-  assert.ok(world.length > 5000 && world.length < 6500, `attempts=${world.length}`);
+test("run size scales with the configured horizon", () => {
+  // A monthly mandate has at most floor(horizon/30) due dates. The shortfall is
+  // mandates created mid-horizon plus, since the revoke fix, mandates that stop
+  // being debited when they are explicitly cancelled. Measured at 0.92-0.95 of
+  // the ceiling across 90/180/270/360d, so the band is a real check, not a
+  // tautology -- the old assertion hardcoded the 90-day answer and broke the
+  // moment the horizon became a swept parameter.
+  const ceiling = N_MANDATES * Math.floor(HORIZON_DAYS / 30);
+  const ratio = world.length / ceiling;
+  assert.ok(ratio > 0.85 && ratio <= 1.0, `attempts=${world.length} of ceiling ${ceiling} (ratio ${ratio.toFixed(3)})`);
+});
+
+test("no attempt is ever made after an explicit revoke", () => {
+  // BUG 2: a revoked mandate is dead at the PSP. Silent churn must be unaffected.
+  let explicitAfter = 0;
+  let silentAfter = 0;
+  for (const w of world) {
+    const churnedAt = w.world.churned_at === null ? null : Date.parse(w.world.churned_at);
+    if (churnedAt === null || w.timestamp_ms < churnedAt) continue;
+    if (w.world.churn_emits_event) explicitAfter++;
+    else silentAfter++;
+  }
+  assert.equal(explicitAfter, 0, `${explicitAfter} attempts after an explicit revoke`);
+  assert.ok(silentAfter > 20, `silent churn must still generate failures, got ${silentAfter}`);
 });
 
 test("failure rate sits in the 15-25% band", () => {
