@@ -46,29 +46,26 @@ without double-firing. Claude writes prose about the results and touches nothing
 ## 3. Data flow
 
 ```
-generateWorldFull() ─► world.jsonl        {cause, blockers, multi_cause, world:{...}}
-   └─ observe() ─────► observations.jsonl  merchant-visible only
+generateWorldFull() ─► world.jsonl          ground truth, never read downstream
+   └─ observe() ─────► observations.jsonl   merchant-visible only
         └─ computeFeatures()  ← observations ONLY, strictly point-in-time
              + label joined in cli.ts + assignSplits() ─► features.jsonl
                   ├─ eval/train.py    ─► model.pkl, support.json
                   └─ eval/evaluate.py ─► evaluation.json, predictions.jsonl
-                       ├─ src/report.ts ─► report.json, exceptions.jsonl
-                       ├─ src/policy.ts ─► policy.json
-                       └─ src/agent/agent.ts ─► agent.db   (needs exceptions.jsonl)
-                            └─ digest ─► digest.txt        (needs report.json + agent.db)
-                                 └─ src/explain.ts ─► explanations.jsonl, digest.md
-
-agent, per failure, up to 3 times:
-   decide ─► scheduleFor ─► checkConstraints ─┬─ vetoed ─► audit(blocked), terminal
-                                              └─ CheckedPlan
-        TX1  audit(pending) + budget++          commit
-        fire INSERT OR IGNORE psp_ledger        commit  ← the effect
-        TX2  audit(completed) + cycle status    commit
+                       ├─ report ─► report.json, exceptions.jsonl
+                       ├─ policy ─► policy.json
+                       └─ agent  ─► agent.db  ─► digest ─► digest.txt
 ```
 
 Everything CHOOSES from observations and predictions; whether an action would have
-worked is adjudicated by replaying the world. Explanations are a leaf: nothing
-reads `explanations.jsonl` or `digest.md` back.
+worked is adjudicated by replaying the world. The agent's per-intervention ordering
+is what makes a crash safe:
+
+```
+TX1  audit(pending) + budget++        commit   ← budget spent before the effect
+fire INSERT OR IGNORE psp_ledger      commit   ← the effect itself, keyed
+TX2  audit(completed) + cycle status  commit
+```
 
 ## 4. Key decisions
 
