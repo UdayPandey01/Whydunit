@@ -187,3 +187,48 @@ one remaining text-based check — `observe.ts` contains no spread operator — 
 backed by the key-allowlist test, so it is a convenience rather than the guarantee
 itself. Where a property can be made unrepresentable, a test that greps for it is
 the wrong tool.
+
+---
+
+## #6 — 2026-08-21 — The merchant digest reported the previous cycle's recovery
+
+**Symptom.** None visible. A full `npm run all` printed a digest whose "Recovery
+this cycle" figures were correct, and the pipeline was green end to end. The bug
+was spotted only by reading the run order in the output rather than the numbers.
+
+**First hypothesis.** Nothing was wrong — the figures matched the agent run in the
+same output, line for line.
+
+**The diagnostic that disproved it.** `npm run all` orders the steps
+`... report && policy && agent`, so `report` — which rendered the digest — ran
+*before* the agent that produced the outcomes it was reporting. Moving
+`data/agent.db` aside and re-running `report` made the entire "Recovery this
+cycle" section disappear rather than error. The figures had matched only because
+the whole pipeline is deterministic and the previous run had produced identical
+numbers.
+
+**Root cause.** Two things collided. The agent needs `exceptions.jsonl`, which
+`report` produces, so `report` must run first — but the digest summarises the
+agent's results, so it must run last. One command could not honestly do both.
+Compounding it, `renderDigest` took `agent: Record<string, number> | null` and
+silently omitted the section when null, so the absent case looked like a design
+choice instead of a missing dependency. On a fresh clone the section would simply
+be missing; on any second run it would print the prior cycle's numbers under a
+heading claiming they were current.
+
+**Fix and what it traded away.** Split into `report` (attribution + exception
+queue) and `digest` (merchant summary), with the agent between them, and made the
+agent tally a **required** argument so the null path cannot exist. `digest` throws
+if `report.json` or `agent.db` is missing. The type checker immediately found a
+test still passing `null`, which is the change working. Cost: one more pipeline
+step, and `--explain` moved to `digest` — where it belongs, since it can now
+report each attribution's real action and outcome instead of the placeholder
+string "see audit log" it had been emitting.
+
+**What it changed about the design.** A nullable argument that makes a section
+vanish is a silent failure mode wearing the costume of a feature. Where a stage
+genuinely depends on an earlier one, the dependency is now a required parameter
+and a hard error, not an `if (x !== null)`. This is the second defect in this
+project found by reading execution order rather than output — INCIDENTS #4 was
+the first — and both were invisible precisely because determinism made stale data
+look identical to fresh data.

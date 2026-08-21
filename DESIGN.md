@@ -28,14 +28,14 @@ without double-firing. Claude writes prose about the results and touches nothing
 | `src/features.ts` | Six invariance families + raw decline code → 43 features. Observations only. |
 | `src/splits.ts` | Mandate (hash), bank (SBI/AXIS holdout) and time (day <60) splits. |
 | `src/exceptions.ts` | The routing rules. Deterministic, in code, observables only. |
-| `src/report.ts` | Headline metric, cause breakdown, merchant digest. |
+| `src/report.ts` | Headline metric, cause breakdown, digest rendering. |
 | `src/explain.ts` | Claude. Prose only — the sole file importing the Anthropic SDK. |
 | `src/policy.ts` | Offline 5-policy comparison with paired bootstrap deltas. |
 | `src/agent/db.ts` | SQLite schema: `audit_log`, `cycle_state`, `psp_ledger`. WAL + `synchronous=FULL`. |
 | `src/agent/psp.ts` | The simulated PSP. The keyed ledger INSERT *is* the side effect. |
 | `src/agent/constraints.ts` | The four hard constraints and the branded `CheckedPlan`. |
 | `src/agent/agent.ts` | `decide` → `scheduleFor` → `checkConstraints` → `execute`, plus resume. |
-| `src/cli.ts` | `generate` \| `features` \| `report` \| `policy` \| `agent`. |
+| `src/cli.ts` | `generate` \| `features` \| `report` \| `policy` \| `agent` \| `digest`. |
 | `eval/train.py` | Fits HistGradientBoosting per split → `model.pkl`, `support.json`. |
 | `eval/evaluate.py` | P/R/F1, macro-F1, confusion, calibration, ECE, all with cluster-bootstrap CIs. |
 | `tests/*.test.ts` | Boundary, determinism, base rates, feature causality, constraints, crash-resume, routing, LLM containment. 54 tests. |
@@ -49,10 +49,11 @@ generateWorldFull() ─► world.jsonl        {cause, blockers, multi_cause, wor
              + label joined in cli.ts + assignSplits() ─► features.jsonl
                   ├─ eval/train.py    ─► model.pkl, support.json
                   └─ eval/evaluate.py ─► evaluation.json, predictions.jsonl
-                       ├─ src/report.ts ─► report.json, exceptions.jsonl, digest.txt
-                       │     └─ src/explain.ts ─► explanations.jsonl, digest.md
+                       ├─ src/report.ts ─► report.json, exceptions.jsonl
                        ├─ src/policy.ts ─► policy.json
-                       └─ src/agent/agent.ts ─► agent.db
+                       └─ src/agent/agent.ts ─► agent.db   (needs exceptions.jsonl)
+                            └─ digest ─► digest.txt        (needs report.json + agent.db)
+                                 └─ src/explain.ts ─► explanations.jsonl, digest.md
 
 agent, per failure, up to 3 times:
    decide ─► scheduleFor ─► checkConstraints ─┬─ vetoed ─► audit(blocked), terminal
@@ -99,6 +100,10 @@ reads `explanations.jsonl` or `digest.md` back.
   one that respects the boundary.
 - **The exception router is the single authority on escalation.** Phase 3's bare
   confidence threshold is gone, so two thresholds can never disagree.
+- **`report` and `digest` are separate stages.** The agent needs the exception
+  queue, and the digest needs the agent's outcomes, so one command could not do
+  both without reporting a stale cycle. The agent tally is a required argument, not
+  a nullable one. See INCIDENTS #6.
 - **The LLM is kept out of scoring structurally, not by prompting.** `explain.ts`
   returns strings, writes to its own files, and is imported by nothing in the
   scoring path. `tests/explain.test.ts` runs an adversarial explainer that insists
@@ -174,10 +179,10 @@ merchant's call to make, so both numbers are reported.
 ```bash
 npm install
 python3.11 -m venv .venv && .venv/bin/pip install scikit-learn numpy
-npm run all          # generate → features → train → eval → report → policy → agent
+npm run all          # generate → features → train → eval → report → policy → agent → digest
 npm test             # 54 tests
 npm run typecheck    # enforces the observation boundary at compile time
 
-npm run report -- --explain   # adds Claude prose; needs ANTHROPIC_API_KEY.
+npm run digest -- --explain   # adds Claude prose; needs ANTHROPIC_API_KEY.
                               # Without it the pipeline runs identically, minus prose.
 ```
