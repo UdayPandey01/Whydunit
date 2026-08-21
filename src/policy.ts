@@ -1,57 +1,17 @@
-import { NOTIFY_MIN_LEAD_HOURS, RESTRICTED_END_HOUR, RESTRICTED_START_HOUR, START_MS, HORIZON_DAYS } from "./config.ts";
+import { NOTIFY_MIN_LEAD_HOURS, START_MS, HORIZON_DAYS } from "./config.ts";
 import { makeRng } from "./rng.ts";
-import { DAY_MS, HOUR_MS, daysInMonth, istMs, istParts } from "./time.ts";
-import { balanceAt } from "./world/balance.ts";
+import { nextMonthDay, SAFE_HOUR, toSafeHour } from "./schedule.ts";
+import { attemptAt } from "./world/replay.ts";
+import type { Notify } from "./world/replay.ts";
+import { DAY_MS, HOUR_MS, istMs, istParts } from "./time.ts";
 import { wasDeliveredByBank } from "./world/notification.ts";
 import type { Cause, Customer, Mandate, WorldRecord } from "./world/types.ts";
 
 const POLICY_SEED = 777001;
 const RETRY_BUDGET = 3;
-const SAFE_HOUR = 14;
 const HORIZON_END_MS = START_MS + HORIZON_DAYS * DAY_MS;
 
 export type Action = { at: number; renotify: boolean };
-
-type Notify = { dispatchMs: number; delivered: boolean };
-
-/**
- * Counterfactual replay. Asks the same four world processes what would have
- * happened had the debit been presented at `at` instead. Policies are chosen from
- * observations and predictions only; the WORLD adjudicates the outcome, which is
- * the entire point of having built a world.
- */
-function attemptAt(
-  customer: Customer,
-  mandate: Mandate,
-  at: number,
-  notify: Notify,
-): { success: boolean; blockers: Cause[] } {
-  const blockers: Cause[] = [];
-  if (mandate.churned_at !== null && at >= mandate.churned_at) blockers.push("C4_CANCELLATION");
-  const leadHours = (at - notify.dispatchMs) / HOUR_MS;
-  if (leadHours < NOTIFY_MIN_LEAD_HOURS || !notify.delivered) blockers.push("C2_NOTIFICATION_FAIL");
-  const hour = istParts(at).hour;
-  if (hour >= RESTRICTED_START_HOUR && hour < RESTRICTED_END_HOUR) blockers.push("C1_EXECUTION_WINDOW");
-  if (mandate.amount > balanceAt(customer, at).balance) blockers.push("C3_BALANCE_SHORTFALL");
-  return { success: blockers.length === 0, blockers };
-}
-
-// Shift a retry out of the NPCI window. Any policy author who has read the NPCI
-// circular can do this -- it needs no classifier, which is exactly why the
-// window_aware baseline exists below.
-function toSafeHour(ms: number): number {
-  const p = istParts(ms);
-  if (p.hour < RESTRICTED_START_HOUR || p.hour >= RESTRICTED_END_HOUR) return ms;
-  return istMs(p.year, p.month, p.day, SAFE_HOUR, p.minute);
-}
-
-function nextMonthDay(ms: number, day: number): number {
-  const p = istParts(ms);
-  const d = new Date(Date.UTC(p.year, p.month + 1, 1));
-  const y = d.getUTCFullYear();
-  const mo = d.getUTCMonth();
-  return istMs(y, mo, Math.min(day, daysInMonth(y, mo)), SAFE_HOUR, 0);
-}
 
 // ---------- the policies ----------
 

@@ -52,3 +52,14 @@ export function weighted<K extends string>(rng: Rng, weights: Record<K, number>)
   }
   return keys[keys.length - 1]!;
 }
+
+// FNV-1a. Deterministic across runs and platforms, which is what makes both the
+// data splits and the agent's idempotency keys stable.
+export function hash32(s: string): number {
+  let h = 0x811c9dc5;
+  for (let i = 0; i < s.length; i++) {
+    h ^= s.charCodeAt(i);
+    h = Math.imul(h, 0x01000193);
+  }
+  return h >>> 0;
+}

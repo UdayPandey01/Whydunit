@@ -1,4 +1,5 @@
 import type { FeatureRow } from "./features.ts";
+import { hash32 } from "./rng.ts";
 
 // Banks held out entirely from training. Both carry injected outages, so C2 is
 // still testable in the holdout, and the remaining three carry outages too, so it
@@ -10,17 +11,6 @@ export const TIME_SPLIT_DAY = 60; // train days 0-59, test days 60-89
 export type Split = "train" | "test";
 export type SplitScheme = "mandate" | "bank" | "time";
 export type SplitAssignment = Record<SplitScheme, Split>;
-
-// FNV-1a. Deterministic and stable across runs, unlike Math.random or any
-// index-based split, so a mandate always lands on the same side.
-function hash32(s: string): number {
-  let h = 0x811c9dc5;
-  for (let i = 0; i < s.length; i++) {
-    h ^= s.charCodeAt(i);
-    h = Math.imul(h, 0x01000193);
-  }
-  return h >>> 0;
-}
 
 /**
  * Three independent views of the same rows, each answering a different question:
