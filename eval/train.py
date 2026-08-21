@@ -75,6 +75,29 @@ def main():
             f"(in-sample acc {metrics['splits'][scheme]['in_sample_accuracy']:.3f})"
         )
 
+    # Training-support envelope for the exception router. The deployed model is the
+    # mandate-split one, so its training rows define what "seen before" means.
+    train = np.array([r["split"]["mandate"] == "train" for r in rows])
+    Xtr = X[train]
+    support = {
+        "reference_split": "mandate",
+        "n_train": int(train.sum()),
+        "banks": sorted({r["bank"] for r, t in zip(rows, train) if t}),
+        "bank_train_counts": {
+            b: sum(1 for r, t in zip(rows, train) if t and r["bank"] == b)
+            for b in sorted({r["bank"] for r, t in zip(rows, train) if t})
+        },
+        "feature_range": {
+            n: [
+                None if np.isnan(np.nanmin(Xtr[:, i])) else float(np.nanmin(Xtr[:, i])),
+                None if np.isnan(np.nanmax(Xtr[:, i])) else float(np.nanmax(Xtr[:, i])),
+            ]
+            for i, n in enumerate(names)
+        },
+    }
+    (DATA / "support.json").write_text(json.dumps(support, indent=2) + "\n")
+    print(f"[train] wrote data/support.json ({len(support['banks'])} banks, {len(names)} feature ranges)")
+
     with (DATA / "model.pkl").open("wb") as fh:
         pickle.dump({"models": models, "feature_names": names, "params": PARAMS}, fh)
     (DATA / "metrics.json").write_text(json.dumps(metrics, indent=2) + "\n")
