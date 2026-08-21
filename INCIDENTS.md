@@ -148,3 +148,42 @@ rule for Phase 4 is that any new component touching simulated time states its
 valid range explicitly. The bug was caught only because Phase 2 had produced an
 independent number for the same quantity; without that cross-check it would have
 shipped as a headline.
+
+---
+
+## #5 — 2026-08-21 — The LLM-containment test was matching prose, not imports
+
+**Symptom.** `tests/explain.test.ts` failed with
+`../src/exceptions.ts references the explanation layer`. That file has no LLM
+code in it at all, and the pipeline it guards was demonstrably working.
+
+**First hypothesis.** A stale build artifact, or the test resolving the wrong file
+through `import.meta.url`.
+
+**The diagnostic that disproved it.** Printing the matched region showed the hit
+was inside an ordinary English sentence I had written minutes earlier — the
+evidence line *"outside the 10:00-13:00 window, so the window does not explain
+it"*. The test was doing `src.includes("explain")` against the whole file, so any
+use of the word in a comment or a user-facing string counted as an import.
+
+**Root cause.** The central claim of Phase 4 is that Claude cannot reach the
+scoring path. I had written the test that proves it as a substring search over
+source text rather than a check on the module graph. It happened to fail loudly
+here, but the same construction fails the other way just as easily: rename the
+module to `narrate.ts` and the test goes green while the import is still there. A
+guarantee checked by grepping for a word is not a guarantee.
+
+**Fix and what it traded away.** The test now extracts import specifiers with a
+regex over `from "..."` and asserts none of them names the explanation layer or
+the SDK, plus a second test asserting the Anthropic SDK is imported in exactly one
+file in the whole project. Nothing was traded — the previous check was strictly
+weaker.
+
+**What it changed about the design.** Every structural guarantee in this project
+is now checked against structure rather than text: the observation boundary
+asserts on serialized keys, the constraint layer is enforced by a branded type the
+checker alone can mint, and LLM containment is checked on the import graph. The
+one remaining text-based check — `observe.ts` contains no spread operator — is
+backed by the key-allowlist test, so it is a convenience rather than the guarantee
+itself. Where a property can be made unrepresentable, a test that greps for it is
+the wrong tool.

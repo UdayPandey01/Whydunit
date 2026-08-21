@@ -6,3 +6,6 @@ data/*.json
 data/*.db
 data/*.db-wal
 data/*.db-shm
+data/*.txt
+data/*.md
+data/explanations-cache.json
