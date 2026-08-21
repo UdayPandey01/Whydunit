@@ -12,10 +12,11 @@
     "train": ".venv/bin/python eval/train.py",
     "eval": ".venv/bin/python eval/evaluate.py",
     "policy": "node src/cli.ts policy",
-    "all": "npm run generate && npm run features && npm run train && npm run eval && npm run policy && npm run agent -- --fresh",
+    "all": "npm run generate && npm run features && npm run train && npm run eval && npm run report && npm run policy && npm run agent -- --fresh",
     "test": "node --test \"tests/**/*.test.ts\"",
     "typecheck": "tsc --noEmit",
-    "agent": "node src/cli.ts agent"
+    "agent": "node src/cli.ts agent",
+    "report": "node src/cli.ts report"
   },
   "devDependencies": {
     "@types/better-sqlite3": "^9.6.0",
@@ -23,6 +24,7 @@
     "typescript": "^5.9.3"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.120.0",
     "better-sqlite3": "^13.0.3"
   }
 }
