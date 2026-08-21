@@ -168,29 +168,25 @@ preserve the hour and land back inside the NPCI window.
 
 ## 7. Presentation and verification
 
-`render.ts` and `copy.ts` are display only; no result is computed there. Tables
-size their own columns, so no call site does width arithmetic — the class of bug
-that used to tear box frames cannot occur. Colour is semantic: green beats the
-baseline, red is worse, yellow means the interval straddles zero, dim is context.
-Every command fits in 79 columns, checked by scanning rendered output, so nothing
-wraps in a screen recording.
+`render.ts` (143 lines) and `copy.ts` are display only. Tables size their own
+columns, so the width arithmetic that used to tear box frames cannot occur.
+Colour is semantic: green beats the baseline, red is worse, yellow means the
+interval straddles zero. Every command fits 79 columns, checked by scanning
+rendered output.
 
-`explain <mandate_id>` is the single-case drill-down: observations, then what was
-*not* observable, the invariance test across hour / bank / day-of-month / recent
-run, competing hypotheses with calibrated probabilities, attribution, action and
-constraint checks, outcome — and ground truth **last**, labelled evaluation-only.
-Three reference mandates are pinned in README.md.
+`explain <mandate_id>` walks one mandate: observations, what was *not* observable,
+the invariance test, competing hypotheses, attribution, action and constraint
+checks, outcome — ground truth **last**, labelled evaluation-only. Three reference
+mandates are pinned in README.md.
 
-`verify` regenerates the seeded world in-process, re-hashes every committed
-artifact against `reference/manifest.json`, and compares eleven headline scalars
-so a failure names the number that moved rather than only the file. Exits non-zero
-on any mismatch; `--full` re-runs the pipeline first, which is the only way to
-catch a change on the Python side. Proven to fail: corrupting one field of
-`policy.json` and running under a different horizon both exit 1.
+`verify` regenerates the seeded world in-process, re-hashes every artifact against
+`reference/manifest.json`, and compares eleven headline scalars so a failure names
+the metric that moved. Exits non-zero on mismatch; `--full` re-runs the pipeline
+to catch Python-side drift. Proven to fail: corrupting `policy.json` and running a
+different horizon both exit 1.
 
-`demo` and `explain` are **views** — they read finished artifacts and run no
-pipeline stage. Python eval output is untouched: it is the methodology report,
-not the demo surface.
+`demo` and `explain` are views — they read finished artifacts and run no pipeline
+stage. Python eval output is untouched: it is the methodology report.
 
 ## 8. How to run
 
