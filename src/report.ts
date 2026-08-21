@@ -86,8 +86,8 @@ export function buildReport(scored: Scored[], support: Support): Report {
     // The exact format asked for. Percentages are of failed attempts.
     headline:
       `Classified ${pct(classified.length).toFixed(1)}% at macro-F1 ${f1.toFixed(3)} ` +
-      `[95% CI ${ci[0].toFixed(3)}–${ci[1].toFixed(3)}], ` +
-      `routed ${pct(exceptions.length).toFixed(1)}% to human review.`,
+      `[${ci[0].toFixed(3)}–${ci[1].toFixed(3)}], ` +
+      `routed ${pct(exceptions.length).toFixed(1)}% to review.`,
     n_failures: scored.length,
     n_classified: classified.length,
     n_routed: exceptions.length,
