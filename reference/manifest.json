@@ -1,0 +1,32 @@
+{
+  "config": {
+    "seed": 20260903,
+    "horizon_days": 270,
+    "cost_ratio": 20
+  },
+  "artifacts": {
+    "data/world.jsonl": "a7c72c6bb858f6bb4fe538549cfa580538e5ad3b6c413ec202da482f9116f6bb",
+    "data/observations.jsonl": "196cda885889b196ab804a00c69c89d8cb12667e63542ef05f9ec715c63d8984",
+    "data/features.jsonl": "78f65bc30f2eafeacc750de06e7b191c33adafcd03f66e3c912d3bae103e02b3",
+    "data/predictions.jsonl": "3a0e97e77266d020ae87826785a47faff2af9f0deaa9bd0b64c660cad1119f87",
+    "data/exceptions.jsonl": "df0e566a2865ad13dd3c4338f6299f2052dd6637237eabeaaeb8acf09c5696ae",
+    "data/report.json": "92bf7ea814477ace71eb284e19ec93abe4a03e228ee38527fcfb2c09b1c34951",
+    "data/policy.json": "3f262b1d5169d5d593ed34ce52db615db7536bba7df6936d5ba4f9149d2016f9",
+    "data/evaluation.json": "6fae3177289ce44c51e7d9b5006514ca325178c3a1bea67ec6fac44bdd99b58b",
+    "data/metrics.json": "3eabd9edaad8a5e0241abaa3ab8715810bd7fd14e7af3ffce6ddc26e7427292c",
+    "data/support.json": "54b0f1d2fafb4351b7d3b76aadf50d27320827a331c72d39427a09e2c42993ef"
+  },
+  "headline": {
+    "failures": 3116,
+    "classified": 2756,
+    "routed": 360,
+    "macro_f1_classified": 0.881203,
+    "macro_f1_mandate": 0.848187,
+    "ece_mandate": 0.093277,
+    "macro_f1_out_of_fold": 0.862784,
+    "stop_threshold": 0.952381,
+    "model_rate": 0.630597,
+    "rule_rate": 0.629214,
+    "model_retries": 1.794288
+  }
+}
