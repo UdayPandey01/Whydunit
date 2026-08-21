@@ -44,6 +44,7 @@ function fixture(): { scored: Scored[]; world: Map<string, number> } {
 }
 
 const { scored } = fixture();
+const AGENT_TALLY = { recovered: 12, failed: 30, not_applicable: 5 };
 
 test("the fixture is big enough to matter", () => {
   assert.ok(scored.length > 100, `${scored.length} rows`);
@@ -77,7 +78,7 @@ test("the Anthropic SDK is imported in exactly one file", () => {
 test("attribution and routing are byte-identical with and without explanations", async () => {
   const before = buildReport(scored, SUPPORT);
   const beforeJson = JSON.stringify(before);
-  const beforeDigest = renderDigest(before, null).join("\n");
+  const beforeDigest = renderDigest(before, AGENT_TALLY).join("\n");
 
   const attributions: Attribution[] = scored.slice(0, 25).map((s) => ({
     attempt_id: s.row.attempt_id, mandate_id: s.row.mandate_id, bank: s.row.bank,
@@ -88,13 +89,13 @@ test("attribution and routing are byte-identical with and without explanations",
 
   const attrText = await explainAttributions(attributions, ADVERSARIAL);
   const excText = await explainExceptions(before.exceptions.slice(0, 25), ADVERSARIAL);
-  const digestText = await explainDigest(before, renderDigest(before, null), ADVERSARIAL);
+  const digestText = await explainDigest(before, renderDigest(before, AGENT_TALLY), ADVERSARIAL);
 
   assert.ok(attrText.length > 0 && excText.length > 0 && digestText.length > 0, "explainer produced nothing");
 
   // The report object was not mutated...
   assert.equal(JSON.stringify(before), beforeJson);
-  assert.equal(renderDigest(before, null).join("\n"), beforeDigest);
+  assert.equal(renderDigest(before, AGENT_TALLY).join("\n"), beforeDigest);
   // ...and recomputing from scratch gives the identical result.
   assert.equal(JSON.stringify(buildReport(scored, SUPPORT)), beforeJson);
 });

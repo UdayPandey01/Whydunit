@@ -114,12 +114,11 @@ const REASON_TEXT: Record<ExceptionReason, string> = {
   outside_training_support: "bank or operating regime outside training support",
 };
 
-// Deterministic digest. src/explain.ts may add prose on top of this, but never
-// replaces it and never changes a number.
-export function renderDigest(r: Report, agent: Record<string, number> | null): string[] {
-  const inr = (n: number) => `₹${Math.round(n).toLocaleString("en-IN")}`;
+const inr = (n: number) => `₹${Math.round(n).toLocaleString("en-IN")}`;
+
+/** Attribution and queue only — everything knowable before the agent has run. */
+export function renderAttribution(r: Report): string[] {
   const lines = [
-    r.headline,
     "",
     `${r.n_failures} failed debits worth ${inr(r.amount_at_risk)}.`,
     `  auto-attributed ${r.n_classified} (${inr(r.amount_classified)})`,
@@ -136,9 +135,22 @@ export function renderDigest(r: Report, agent: Record<string, number> | null): s
   for (const [reason, n] of Object.entries(r.by_reason).sort((a, b) => b[1] - a[1])) {
     lines.push(`  ${String(n).padStart(4)}  ${REASON_TEXT[reason as ExceptionReason]}`);
   }
-  if (agent !== null) {
-    lines.push("", "Recovery this cycle:");
-    for (const [k, v] of Object.entries(agent)) lines.push(`  ${k.padEnd(22)} ${String(v).padStart(6)}`);
+  lines.push("");
+  return lines;
+}
+
+/**
+ * The full merchant digest for a finished cycle.
+ *
+ * `agent` is REQUIRED, not optional. It used to be nullable, and the recovery
+ * section simply disappeared when the database was absent — which is how a stale
+ * previous cycle's figures came to be printed under "Recovery this cycle" when
+ * the file happened to exist. A missing agent run is now a caller error.
+ */
+export function renderDigest(r: Report, agent: Record<string, number>): string[] {
+  const lines = [r.headline, ...renderAttribution(r), "Recovery this cycle:"];
+  for (const [k, v] of Object.entries(agent).sort((a, b) => b[1] - a[1])) {
+    lines.push(`  ${k.padEnd(22)} ${String(v).padStart(6)}`);
   }
   return lines;
 }

@@ -6,7 +6,8 @@ import type { WorkItem } from "./agent/agent.ts";
 import { HORIZON_DAYS, SEED } from "./config.ts";
 import { explainAttributions, explainDigest, explainExceptions, claudeExplainer, hasCredentials } from "./explain.ts";
 import type { Attribution } from "./explain.ts";
-import { buildReport, renderDigest } from "./report.ts";
+import { buildReport, renderAttribution, renderDigest } from "./report.ts";
+import type { Report } from "./report.ts";
 import type { Scored } from "./report.ts";
 import type { Support } from "./exceptions.ts";
 import { computeFeatures } from "./features.ts";
@@ -306,70 +307,93 @@ async function runReport(): Promise<void> {
   writeJsonl("data/exceptions.jsonl", report.exceptions);
   writeFileSync("data/report.json", JSON.stringify(report, null, 2) + "\n");
 
-  const agentSummary = readAgentSummary();
-  const digest = renderDigest(report, agentSummary);
-  writeFileSync("data/digest.txt", digest.join("\n") + "\n");
-  for (const line of digest) console.log(`${RP} ${line}`);
-  console.log(`${RP}`);
+  console.log(`${RP} ${report.headline}`);
+  for (const line of renderAttribution(report)) console.log(`${RP} ${line}`);
   console.log(`${RP} macro-F1 over ALL failures, routed or not: ${report.macro_f1_all.toFixed(3)}`);
-  console.log(`${RP} wrote data/report.json, data/exceptions.jsonl, data/digest.txt`);
+  console.log(`${RP} wrote data/report.json and data/exceptions.jsonl`);
+  console.log(`${RP} run the agent, then \`npm run digest\` for the merchant summary`);
+}
+
+/**
+ * The merchant-facing summary of a FINISHED cycle. Split out from `report`
+ * because the digest reports the agent's outcomes and the agent cannot run until
+ * `report` has produced the exception queue -- so one command could not honestly
+ * do both. It refuses to run rather than quietly omitting recovery, which is how
+ * the earlier version came to print a previous cycle's figures. See INCIDENTS #6.
+ */
+async function runDigest(): Promise<void> {
+  const DP = "[digest]";
+  if (!existsSync("data/report.json")) throw new Error("data/report.json missing -- run `npm run report` first");
+  if (!existsSync("data/agent.db")) throw new Error("data/agent.db missing -- run `npm run agent` before the digest");
+
+  const report = JSON.parse(readFileSync("data/report.json", "utf8")) as Report;
+  const outcomes = readAgentOutcomes();
+  const digest = renderDigest(report, outcomes.tally);
+  writeFileSync("data/digest.txt", digest.join("\n") + "\n");
+  for (const line of digest) console.log(`${DP} ${line}`);
+  console.log(`${DP} wrote data/digest.txt`);
 
   if (!process.argv.includes("--explain")) {
-    console.log(`${RP} natural-language layer skipped (pass --explain to enable)`);
+    console.log(`${DP} natural-language layer skipped (pass --explain to enable)`);
     return;
   }
   if (!hasCredentials()) {
-    console.log(`${RP} --explain requested but no ANTHROPIC_API_KEY / ANTHROPIC_AUTH_TOKEN found; skipping`);
+    console.log(`${DP} --explain requested but no ANTHROPIC_API_KEY / ANTHROPIC_AUTH_TOKEN found; skipping`);
     return;
   }
 
   // Everything above is already final. Nothing below changes a number, and its
   // output goes to its own files that no other module reads.
+  const world = new Map(readJsonl<WorldRecord>("data/world.jsonl").map((w) => [w.attempt_id, w]));
+  const rows = new Map(readJsonl<FeatureFile>("data/features.jsonl").map((r) => [r.attempt_id, r]));
+  const routed = new Set(report.exceptions.map((e) => e.attempt_id));
   const explain = claudeExplainer();
-  const attributions: Attribution[] = scored
-    .filter((s) => !report.exceptions.some((e) => e.attempt_id === s.row.attempt_id))
+
+  const attributions: Attribution[] = [...rows.values()]
+    .filter((r) => !routed.has(r.attempt_id))
     .slice(0, Number(process.env.EXPLAIN_LIMIT ?? 20))
-    .map((s) => toAttribution(s, world));
+    .map((r) => {
+      const w = world.get(r.attempt_id)!;
+      const predicted = outcomes.cause.get(r.attempt_id) ?? r.label;
+      const ev = indicators(r.features)[predicted];
+      return {
+        attempt_id: r.attempt_id,
+        mandate_id: r.mandate_id,
+        bank: r.bank,
+        timestamp: r.timestamp,
+        amount: w.amount,
+        cause: predicted,
+        confidence: 0,
+        evidence: ev.length > 0 ? ev : [`decline code ${w.error_code ?? "none"}; no single observable is decisive`],
+        action_taken: outcomes.action.get(r.mandate_id) ?? "no intervention recorded",
+        outcome: outcomes.result.get(r.mandate_id) ?? "no outcome recorded",
+      };
+    });
+
   const attrText = await explainAttributions(attributions, explain);
   const excText = await explainExceptions(report.exceptions.slice(0, 20), explain);
   writeJsonl("data/explanations.jsonl", [...attrText, ...excText]);
   writeFileSync("data/digest.md", (await explainDigest(report, digest, explain)) + "\n");
-  console.log(`${RP} wrote data/explanations.jsonl (${attrText.length + excText.length}) and data/digest.md`);
+  console.log(`${DP} wrote data/explanations.jsonl (${attrText.length + excText.length}) and data/digest.md`);
 }
 
-function toAttribution(s: Scored, world: Map<string, WorldRecord>): Attribution {
-  const w = world.get(s.row.attempt_id)!;
-  const ev = indicators(s.row.features)[s.predicted];
-  return {
-    attempt_id: s.row.attempt_id,
-    mandate_id: s.row.mandate_id,
-    bank: s.row.bank,
-    timestamp: s.row.timestamp,
-    amount: w.amount,
-    cause: s.predicted,
-    confidence: s.proba[s.predicted],
-    evidence: ev.length > 0 ? ev : [`decline code ${w.error_code ?? "none"}; no single observable is decisive`],
-    action_taken: ACTION_FOR[s.predicted],
-    outcome: "see audit log",
-  };
-}
-
-const ACTION_FOR: Record<Cause, string> = {
-  C1_EXECUTION_WINDOW: "rescheduled outside the NPCI restricted window",
-  C2_NOTIFICATION_FAIL: "re-dispatched the pre-debit notification, then rescheduled 26h later",
-  C3_BALANCE_SHORTFALL: "rescheduled later in the cycle, targeting the next likely credit",
-  C4_CANCELLATION: "stopped; no further retries",
-};
-
-function readAgentSummary(): Record<string, number> | null {
-  if (!existsSync("data/agent.db")) return null;
+function readAgentOutcomes() {
   const db = new Database("data/agent.db", { readonly: true });
-  const out: Record<string, number> = {};
+  const tally: Record<string, number> = {};
   for (const r of db.prepare("SELECT outcome k, COUNT(*) n FROM audit_log GROUP BY outcome").all() as { k: string; n: number }[]) {
-    out[r.k] = r.n;
+    tally[r.k] = r.n;
+  }
+  const action = new Map<string, string>();
+  const result = new Map<string, string>();
+  const cause = new Map<string, Cause>();
+  for (const r of db.prepare("SELECT mandate_id, source_attempt, cause, action, outcome FROM audit_log ORDER BY attempt_no").all() as
+    { mandate_id: string; source_attempt: string; cause: Cause | null; action: string; outcome: string }[]) {
+    action.set(r.mandate_id, r.action);
+    result.set(r.mandate_id, r.outcome);
+    if (r.cause !== null) cause.set(r.source_attempt, r.cause);
   }
   db.close();
-  return out;
+  return { tally, action, result, cause };
 }
 
 function main(): void {
@@ -378,11 +402,15 @@ function main(): void {
     void runReport();
     return;
   }
+  if (command === "digest") {
+    void runDigest();
+    return;
+  }
   if (command === "features") return buildFeatures();
   if (command === "agent") return runAgentCommand();
   if (command === "policy") return runPolicies();
   if (command !== "generate") {
-    console.error("usage: node src/cli.ts <generate|features|report|policy|agent>");
+    console.error("usage: node src/cli.ts <generate|features|report|policy|agent|digest>");
     process.exit(1);
   }
 
