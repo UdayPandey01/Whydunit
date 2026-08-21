@@ -1,4 +1,5 @@
 import type { FeatureRow } from "./features.ts";
+import { HORIZON_DAYS } from "./config.ts";
 import { hash32 } from "./rng.ts";
 
 // Banks held out entirely from training. Both carry injected outages, so C2 is
@@ -6,7 +7,11 @@ import { hash32 } from "./rng.ts";
 // is still learnable in training.
 export const HOLDOUT_BANKS = ["SBI", "AXIS"];
 export const MANDATE_TRAIN_FRACTION = 0.7;
-export const TIME_SPLIT_DAY = 60; // train days 0-59, test days 60-89
+// Two thirds of the horizon, not a fixed day. A hard day-60 boundary meant the
+// train/test proportion swung from 67/33 at a 90-day horizon to 17/83 at 360,
+// so time-split numbers were not comparable across the horizon sweep. At 90 days
+// this still evaluates to 60, so the original behaviour is preserved there.
+export const TIME_SPLIT_DAY = Math.floor((HORIZON_DAYS * 2) / 3);
 
 export type Split = "train" | "test";
 export type SplitScheme = "mandate" | "bank" | "time";

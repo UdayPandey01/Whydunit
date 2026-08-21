@@ -46,12 +46,30 @@ def load():
 
 
 def main():
-    rows, names, X, y = load()
+    rows, all_names, X_all, y = load()
+
+    # Fixing the revoke bug made two columns degenerate: no attempt now occurs
+    # after an explicit revoke, so `revoked_before_attempt` is constant 0 and
+    # `hours_since_revoke` is entirely NaN. HistGradientBoosting cannot bin an
+    # all-NaN column at all. Drop degenerate columns and say which, rather than
+    # quietly editing the feature extractor.
+    keep, dropped = [], []
+    for i, n in enumerate(all_names):
+        col = X_all[:, i]
+        if np.all(np.isnan(col)) or np.nanmin(col) == np.nanmax(col):
+            dropped.append(n)
+        else:
+            keep.append(i)
+    names = [all_names[i] for i in keep]
+    X = X_all[:, keep]
+    if dropped:
+        print(f"[train] dropped {len(dropped)} degenerate feature(s): {', '.join(dropped)}")
     models = {}
     metrics = {
         "n_rows": len(rows),
         "n_features": len(names),
         "feature_names": names,
+        "dropped_features": dropped,
         "params": {k: v for k, v in PARAMS.items()},
         "splits": {},
     }
