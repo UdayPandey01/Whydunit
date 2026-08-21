@@ -36,9 +36,9 @@ without double-firing. Claude writes prose about the results and touches nothing
 | `src/agent/psp.ts` | The simulated PSP. The keyed ledger INSERT *is* the side effect. |
 | `src/agent/constraints.ts` | The four hard constraints and the branded `CheckedPlan`. |
 | `src/agent/agent.ts` | `decide` → `scheduleFor` → `checkConstraints` → `execute`, plus resume. |
-| `src/ui.ts` | Terminal primitives: boxes, tables, bars, colour. Computes nothing. |
+| `src/render.ts` | Terminal primitives: self-sizing tables, semantic colour, sparklines, progress. Computes nothing. 143 lines. |
 | `src/copy.ts` | Human-readable labels. Mirrors the agent's action map, never leads it. |
-| `src/cli.ts` | `demo` \| `inspect` \| `generate` \| `features` \| `report` \| `policy` \| `agent` \| `digest`. |
+| `src/cli.ts` | `generate` \| `features` \| `report` \| `policy` \| `agent` \| `digest` \| `explain` \| `verify` \| `demo`. |
 | `eval/train.py` | Fits HistGradientBoosting per split → `model.pkl`, `support.json`. |
 | `eval/evaluate.py` | P/R/F1, macro-F1, confusion, calibration, ECE, all with cluster-bootstrap CIs. |
 | `tests/*.test.ts` | Boundary, determinism, base rates, feature causality, constraints, crash-resume, routing, LLM containment. 54 tests. |
@@ -169,14 +169,31 @@ preserve the hour and land back inside the NPCI window.
   scheduled into the next calendar month; collision with that month's own debit is
   unhandled.
 
-## 7. Presentation layer
+## 7. Presentation and verification
 
-`ui.ts` and `copy.ts` are display only. `demo` and `inspect` are **views**: they
-read finished artifacts and run no pipeline stage. Verified by running the whole
-pipeline with the pre-UI CLI and the new one — every artifact and the agent
-database byte-identical. Colour is off when `NO_COLOR` is set, `TERM=dumb`, or
-stdout is not a TTY. Python eval output is untouched: it is the methodology
-report, not the demo surface.
+`render.ts` and `copy.ts` are display only; no result is computed there. Tables
+size their own columns, so no call site does width arithmetic — the class of bug
+that used to tear box frames cannot occur. Colour is semantic: green beats the
+baseline, red is worse, yellow means the interval straddles zero, dim is context.
+Every command fits in 79 columns, checked by scanning rendered output, so nothing
+wraps in a screen recording.
+
+`explain <mandate_id>` is the single-case drill-down: observations, then what was
+*not* observable, the invariance test across hour / bank / day-of-month / recent
+run, competing hypotheses with calibrated probabilities, attribution, action and
+constraint checks, outcome — and ground truth **last**, labelled evaluation-only.
+Three reference mandates are pinned in README.md.
+
+`verify` regenerates the seeded world in-process, re-hashes every committed
+artifact against `reference/manifest.json`, and compares eleven headline scalars
+so a failure names the number that moved rather than only the file. Exits non-zero
+on any mismatch; `--full` re-runs the pipeline first, which is the only way to
+catch a change on the Python side. Proven to fail: corrupting one field of
+`policy.json` and running under a different horizon both exit 1.
+
+`demo` and `explain` are **views** — they read finished artifacts and run no
+pipeline stage. Python eval output is untouched: it is the methodology report,
+not the demo surface.
 
 ## 8. How to run
 
@@ -186,8 +203,9 @@ python3.11 -m venv .venv && .venv/bin/pip install scikit-learn numpy
 WHYDUNIT_HORIZON=180 npm run all   # any horizon; default 270
 npm run policy -- --cost-ratio 10  # override the stop threshold
 
-npm run demo         # the dashboard: reads finished artifacts, computes nothing
-npm run inspect -- att_000334    # one payment, end to end
+npm run demo                       # the dashboard
+npm run explain mdt_00004          # one mandate, end to end
+npm run verify                     # reproducibility proof, exits non-zero on drift
 
 npm run all          # generate → features → train → eval → report → policy → agent → digest
 npm test             # 54 tests
