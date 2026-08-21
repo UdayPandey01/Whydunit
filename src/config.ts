@@ -2,18 +2,27 @@ import { istMs } from "./time.ts";
 
 // ---------- run size ----------
 export const SEED = 20260903;
-export const OBSERVATION_SEED = SEED + 1; // separate stream: changing the observation
-                                          // layer must never move the world
+export const OBSERVATION_SEED = SEED + 1; 
+
 export const N_MANDATES = 2000;
-export const HORIZON_DAYS = 90;
-export const START_MS = istMs(2026, 0, 1, 0, 0); // 1 Jan 2026 IST -> exactly 90 days to 31 Mar
+// Overridable so the horizon sweep can run without editing this file.
+export const HORIZON_DAYS = Number(process.env.WHYDUNIT_HORIZON ?? 270);
+export const START_MS = istMs(2026, 0, 1, 0, 0); 
+
+// ---------- cost-sensitive stopping ----------
+// Stopping a mandate is not the same kind of mistake as retrying one. A wrongful
+// stop abandons a recoverable mandate and forfeits its whole value; a wrongful
+// retry burns one retry. Expressing both in the same unit (a mandate value) gives
+// a ratio, and the ratio gives the probability threshold above which stopping is
+// the cheaper bet: stop iff P(C4) > ratio / (ratio + 1).
+export const COST_WRONGFUL_STOP = 1.0; // one full mandate value
+export const COST_WRONGFUL_RETRY = 0.05; // one retry, as a fraction of that value
+export const DEFAULT_COST_RATIO = COST_WRONGFUL_STOP / COST_WRONGFUL_RETRY;
 
 // ---------- C1: NPCI execution window ----------
 export const RESTRICTED_START_HOUR = 10;
-export const RESTRICTED_END_HOUR = 13; // [10:00, 13:00) IST
+export const RESTRICTED_END_HOUR = 13; 
 
-// How often the merchant's scheduler naively lands inside the restricted window.
-// C1's raw block rate IS this number, so it is the knob that sets C1's base rate.
 export const WINDOW_HIT_RATE = 0.042;
 export const RESTRICTED_HOURS = [10, 11, 12];
 export const SAFE_HOUR_WEIGHTS: Record<string, number> = {
@@ -34,14 +43,11 @@ export const BANKS: Record<string, { share: number; notify_reliability: number }
 // ---------- C2: pre-debit notification ----------
 export const NOTIFY_LEAD_HOURS_MIN = 26;
 export const NOTIFY_LEAD_HOURS_MAX = 72;
-export const LATE_DISPATCH_RATE = 0.012; // merchant-side C2: dispatched < 24h before debit
+export const LATE_DISPATCH_RATE = 0.012; 
 export const LATE_LEAD_HOURS_MIN = 2;
 export const LATE_LEAD_HOURS_MAX = 23;
-export const NOTIFY_MIN_LEAD_HOURS = 24; // NPCI rule the debit is checked against
+export const NOTIFY_MIN_LEAD_HOURS = 24; 
 
-// Bank notification outages, expressed against the horizon. Because dispatch
-// happens 26-72h ahead of the debit, an outage on day D surfaces as failures on
-// days D+1..D+3 -- the burst signature C2 is identified by.
 export const NOTIFICATION_OUTAGES: {
   bank: string; start_day: number; start_hour: number; end_day: number; end_hour: number;
 }[] = [
@@ -57,7 +63,7 @@ export const OUTAGE_DELIVERY_RATE = 0.04;
 export const SALARY_DAY_WEIGHTS: Record<string, number> = {
   "1": 40, "2": 8, "3": 5, "5": 8, "7": 18, "10": 10, "15": 7, "25": 4,
 };
-export const SALARY_DELAY_PROB = 0.14; // salary-day dispersion: credit slips some months
+export const SALARY_DELAY_PROB = 0.14; 
 export const SALARY_DELAY_MAX_DAYS = 3;
 export const INCOME_MEDIAN = 42000;
 export const INCOME_SIGMA = 0.55;
@@ -65,7 +71,7 @@ export const SPEND_RATIO_MEAN = 0.925;
 export const SPEND_RATIO_SD = 0.22;
 export const SPEND_RATIO_MIN = 0.35;
 export const SPEND_RATIO_MAX = 1.5;
-export const SPEND_TAU_DAYS = 8; // spend decays through the month, front-loaded
+export const SPEND_TAU_DAYS = 8; 
 export const BUFFER_RATIO_MEDIAN = 0.075;
 export const BUFFER_RATIO_SIGMA = 0.95;
 export const SHOCK_PROB_PER_MONTH = 0.1;
@@ -74,8 +80,8 @@ export const SHOCK_FRACTION_MAX = 0.6;
 
 // ---------- C4: churn ----------
 export const CHURN_DAILY_HAZARD = 0.00048;
-export const CHURN_HAZARD_SIGMA = 0.7; // per-customer heterogeneity
-export const CHURN_EVENT_EMIT_RATE = 0.6; // the silent 40% is the hard case
+export const CHURN_HAZARD_SIGMA = 0.7; 
+export const CHURN_EVENT_EMIT_RATE = 0.6; 
 
 // ---------- mandates ----------
 export const PREEXISTING_RATE = 0.92;
@@ -87,17 +93,8 @@ export const AMOUNT_WEIGHTS: Record<string, number> = {
 export const MAX_AMOUNT_MULTIPLE = 2;
 
 // ---------- observation layer ----------
-export const RECEIPT_VISIBLE_RATE = 0.7; // partial observability of delivery receipts
+export const RECEIPT_VISIBLE_RATE = 0.7; 
 
-// ---------- decline codes ----------
-// The single place where cause information reaches an observable, so it MUST be
-// lossy. Every code appears under several causes and the generic U30/U69 bucket
-// spans all of them; if any code were 1:1 with a cause the classifier would be a
-// lookup table and the project would be void.
-//
-// C4 splits: an explicitly revoked mandate declines like a dead mandate, while a
-// silently churned customer produces generic or funds-shaped declines -- which is
-// precisely why silent C4 can only be separated from C3 by invariance over time.
 export const ERROR_CODE_WEIGHTS: Record<string, Record<string, number>> = {
   C1_EXECUTION_WINDOW: { U30: 0.43, U69: 0.33, ZM: 0.16, Z9: 0.06, ZA: 0.02 },
   C2_NOTIFICATION_FAIL: { U30: 0.36, ZM: 0.28, U69: 0.25, Z9: 0.06, ZA: 0.05 },

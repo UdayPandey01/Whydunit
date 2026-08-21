@@ -1,4 +1,5 @@
-import { HORIZON_DAYS, NOTIFY_MIN_LEAD_HOURS, START_MS } from "../config.ts";
+import { DEFAULT_COST_RATIO, HORIZON_DAYS, NOTIFY_MIN_LEAD_HOURS, START_MS } from "../config.ts";
+import { decideCause, stopThreshold } from "../decision.ts";
 import { hash32, makeRng } from "../rng.ts";
 import { cycleOf, nextMonthDay, SAFE_HOUR, toSafeHour } from "../schedule.ts";
 import { DAY_MS, HOUR_MS, istMs, istParts, toIso } from "../time.ts";
@@ -27,6 +28,9 @@ export type WorkItem = {
   revoked_at: number | null;
   cause: Cause | null;
   confidence: number;
+  // Full calibrated distribution. The stop decision needs P(C4) itself, not the
+  // argmax label, because the two mistakes it trades off are not symmetric.
+  proba: Record<Cause, number> | null;
   // Set by src/exceptions.ts. The router is the single authority on what a human
   // sees; Phase 3's bare confidence threshold was a placeholder and is gone, so
   // two thresholds can never disagree.
@@ -42,6 +46,8 @@ export type AgentOptions = {
   mandates: Map<string, Mandate>;
   records: Map<string, WorldRecord>;
   crashAfter?: number;
+  /** Cost-derived P(C4) above which stopping is the cheaper bet. */
+  stopThreshold?: number;
 };
 
 // ---------- crash injection ----------
@@ -59,19 +65,26 @@ function checkpoint(): void {
 
 // ---------- decision ----------
 
-export function decide(item: WorkItem, attemptNo: number, revokedBefore: boolean): ActionName {
-  if (revokedBefore || item.cause === "C4_CANCELLATION") return "stop";
-  if (attemptNo > MAX_INTERVENTIONS_PER_CYCLE) return "escalate_to_human";
-  if (item.routed_to_exception_queue) return "escalate_to_human";
-  switch (item.cause) {
-    case "C1_EXECUTION_WINDOW":
-      return "reschedule";
+export function decide(
+  item: WorkItem,
+  attemptNo: number,
+  revokedBefore: boolean,
+  threshold: number = stopThreshold(DEFAULT_COST_RATIO),
+): { action: ActionName; cause: Cause | null } {
+  // An explicit revoke is certain knowledge, not a prediction, so it stops
+  // unconditionally. Everything below is a belief and gets the cost test.
+  if (revokedBefore) return { action: "stop", cause: "C4_CANCELLATION" };
+  if (attemptNo > MAX_INTERVENTIONS_PER_CYCLE) return { action: "escalate_to_human", cause: item.cause };
+  if (item.routed_to_exception_queue) return { action: "escalate_to_human", cause: item.cause };
+  if (item.proba === null) return { action: "escalate_to_human", cause: item.cause };
+
+  const { cause, stop } = decideCause(item.proba, threshold);
+  if (stop) return { action: "stop", cause };
+  switch (cause) {
     case "C2_NOTIFICATION_FAIL":
-      return "refire_notification_then_reschedule";
-    case "C3_BALANCE_SHORTFALL":
-      return "reschedule";
+      return { action: "refire_notification_then_reschedule", cause };
     default:
-      return "escalate_to_human";
+      return { action: "reschedule", cause };
   }
 }
 
@@ -239,16 +252,20 @@ function resumePending(db: Db, opts: AgentOptions): number {
 
 // ---------- the loop ----------
 
-function processItem(db: Db, opts: AgentOptions, item: WorkItem, cycle: string): void {
+function processItem(db: Db, opts: AgentOptions, item: WorkItem, cycle: string, threshold: number): void {
   for (;;) {
     const st = cycleState(db, item.mandate_id, cycle);
     if (st.status !== "open") return;
 
     const attemptNo = st.interventions_used + 1;
     const revokedBefore = item.revoked_at !== null && item.revoked_at <= item.failed_at;
-    const proposed = decide(item, attemptNo, revokedBefore);
+    const decision = decide(item, attemptNo, revokedBefore, threshold);
+    const proposed = decision.action;
+    // Schedule against the cause we ACTED on, not the argmax label, so the audit
+    // trail and the timing agree with the decision that was actually made.
+    const actedCause = decision.cause;
     const scheduled = EFFECTFUL.includes(proposed)
-      ? scheduleFor(item.cause, Math.min(attemptNo, MAX_INTERVENTIONS_PER_CYCLE), item.failed_at)
+      ? scheduleFor(actedCause, Math.min(attemptNo, MAX_INTERVENTIONS_PER_CYCLE), item.failed_at)
       : null;
     // No legal slot left inside the horizon: a human takes it, rather than the
     // agent booking a retry it cannot honestly account for.
@@ -260,7 +277,7 @@ function processItem(db: Db, opts: AgentOptions, item: WorkItem, cycle: string):
       cycle,
       attempt_no: attemptNo,
       source_attempt: item.source_attempt,
-      cause: item.cause,
+      cause: actedCause,
       confidence: item.confidence,
       action,
       decided_at: item.failed_at,
@@ -316,7 +333,8 @@ export function runAgent(opts: AgentOptions): AgentSummary {
   try {
     const resumed = resumePending(db, opts);
     const work = [...opts.work].sort((a, b) => a.failed_at - b.failed_at);
-    for (const item of work) processItem(db, opts, item, cycleOf(item.failed_at));
+    const threshold = opts.stopThreshold ?? stopThreshold(DEFAULT_COST_RATIO);
+    for (const item of work) processItem(db, opts, item, cycleOf(item.failed_at), threshold);
     return summarise(db, opts, resumed);
   } finally {
     crashBudget = null;

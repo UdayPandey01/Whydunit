@@ -1,4 +1,5 @@
-import { NOTIFY_MIN_LEAD_HOURS, START_MS, HORIZON_DAYS } from "./config.ts";
+import { DEFAULT_COST_RATIO, NOTIFY_MIN_LEAD_HOURS, START_MS, HORIZON_DAYS } from "./config.ts";
+import { decideCause, stopThreshold } from "./decision.ts";
 import { clusterBootstrapCI } from "./bootstrap.ts";
 import { makeRng } from "./rng.ts";
 import { nextMonthDay, SAFE_HOUR, toSafeHour } from "./schedule.ts";
@@ -103,15 +104,20 @@ export function runPolicy(
 }
 
 export function schedulesFor(
-  predictions: Map<string, Cause>,
+  probabilities: Map<string, Record<Cause, number>>,
   rulePredictions: Map<string, Cause>,
+  threshold: number = stopThreshold(DEFAULT_COST_RATIO),
 ): Record<string, (rec: WorldRecord) => Action[]> {
   return {
     do_nothing: () => [],
     naive_retry: (r) => naiveSchedule(r.timestamp_ms),
+    // Cost-sensitive: stop only when P(C4) clears the threshold, otherwise act on
+    // the best RETRYABLE cause rather than abandoning recoverable money.
     model_policy: (r) => {
-      const p = predictions.get(r.attempt_id);
-      return p === undefined ? naiveSchedule(r.timestamp_ms) : modelSchedule(r.timestamp_ms, p);
+      const p = probabilities.get(r.attempt_id);
+      if (p === undefined) return naiveSchedule(r.timestamp_ms);
+      const d = decideCause(p, threshold);
+      return d.stop ? [] : modelSchedule(r.timestamp_ms, d.cause);
     },
     // The same cause-matched actions, driven by four if-statements instead of a
     // gradient-boosted model. If this matches model_policy, the classifier is
