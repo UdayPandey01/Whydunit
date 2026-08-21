@@ -37,3 +37,7 @@ export function round(x: number, places: number): number {
   const f = 10 ** places;
   return Math.round(x * f) / f;
 }
+
+export function istWeekday(ms: number): number {
+  return new Date(ms + IST_OFFSET_MS).getUTCDay();
+}
