@@ -131,10 +131,10 @@ On the hard 60% the model does add signal (0.390 vs the rule's 0.233) but it nev
 converts, because there the right action is "retry later" either way.
 
 **Silent churn recall is 0.000** (explicit-webhook C4 is 1.000). C4 is defined by
-invariance, but monthly mandates over 90 days give at most 3 attempts, so a failure
-has at most 2 priors and 19 of 145 C4 attempts have none. The fix is a Phase-1
-change — weekly mandates, and a lower `RECEIPT_VISIBLE_RATE` so C2 is genuinely
-inferential — deliberately *not* made in response to these numbers.
+invariance, but at a 90-day horizon a failure has at most 2 priors, so the
+signature has no room to appear. Figures in this section are from that 90-day
+configuration; `HORIZON_DAYS` has since been raised to 360, which changes the base
+rates (C4 becomes the largest class) and is why two base-rate tests now fail.
 
 **Recovery (rupees recovered / at risk, paired Δ vs `model_policy`).**
 
@@ -178,18 +178,14 @@ merchant's call to make, so both numbers are reported.
 
 ## 7. Presentation layer
 
-`src/ui.ts` and `src/copy.ts` are display only: no result is computed, derived or
-rounded there. `demo` and `inspect` are **views** — they read finished artifacts
-(`report.json`, `policy.json`, `agent.db`, `observations.jsonl`) and render them,
-running no stage of the pipeline. Verified by running the whole pipeline with the
-pre-UI CLI and with the new one: every artifact and the agent database came out
-byte-identical.
+`ui.ts` and `copy.ts` are display only. `demo` and `inspect` are **views**: they
+read finished artifacts and run no pipeline stage. Verified by running the whole
+pipeline with the pre-UI CLI and the new one — every artifact and the agent
+database byte-identical. Colour is off when `NO_COLOR` is set, `TERM=dumb`, or
+stdout is not a TTY. Python eval output is untouched: it is the methodology
+report, not the demo surface.
 
-Colour is suppressed when `NO_COLOR` is set, `TERM=dumb`, or stdout is not a TTY.
-The Python eval output is deliberately untouched — it is the methodology report,
-not the demo surface.
-
-## 7b. How to run
+## 8. How to run
 
 ```bash
 npm install
