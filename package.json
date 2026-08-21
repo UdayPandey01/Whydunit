@@ -8,7 +8,6 @@
   },
   "scripts": {
     "demo": "node src/cli.ts demo",
-    "inspect": "node src/cli.ts inspect",
     "generate": "node src/cli.ts generate",
     "features": "node src/cli.ts features",
     "train": ".venv/bin/python eval/train.py",
@@ -19,7 +18,9 @@
     "typecheck": "tsc --noEmit",
     "agent": "node src/cli.ts agent",
     "report": "node src/cli.ts report",
-    "digest": "node src/cli.ts digest"
+    "digest": "node src/cli.ts digest",
+    "explain": "node src/cli.ts explain",
+    "verify": "node src/cli.ts verify"
   },
   "devDependencies": {
     "@types/better-sqlite3": "^9.6.0",
@@ -28,6 +29,7 @@
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.120.0",
-    "better-sqlite3": "^13.0.3"
+    "better-sqlite3": "^13.0.3",
+    "picocolors": "^1.1.1"
   }
 }
