@@ -1,4 +1,5 @@
 import { NOTIFY_MIN_LEAD_HOURS, START_MS, HORIZON_DAYS } from "./config.ts";
+import { clusterBootstrapCI } from "./bootstrap.ts";
 import { makeRng } from "./rng.ts";
 import { nextMonthDay, SAFE_HOUR, toSafeHour } from "./schedule.ts";
 import { attemptAt } from "./world/replay.ts";
@@ -128,31 +129,13 @@ export function schedulesFor(
   };
 }
 
-// Resamples MANDATES, matching the cluster bootstrap in evaluate.py.
 export function bootstrapCI(
   outcomes: PolicyOutcome[],
   metric: (rows: PolicyOutcome[]) => number,
   n = 1000,
   seed = 4242,
 ): [number, number] {
-  const byMandate = new Map<string, PolicyOutcome[]>();
-  for (const o of outcomes) {
-    const arr = byMandate.get(o.mandate_id) ?? [];
-    arr.push(o);
-    byMandate.set(o.mandate_id, arr);
-  }
-  const keys = [...byMandate.keys()];
-  const rng = makeRng(seed);
-  const draws: number[] = [];
-  for (let i = 0; i < n; i++) {
-    const sample: PolicyOutcome[] = [];
-    for (let j = 0; j < keys.length; j++) {
-      sample.push(...byMandate.get(keys[Math.floor(rng() * keys.length)]!)!);
-    }
-    draws.push(metric(sample));
-  }
-  draws.sort((a, b) => a - b);
-  return [draws[Math.floor(0.025 * n)]!, draws[Math.floor(0.975 * n)]!];
+  return clusterBootstrapCI(outcomes, (o) => o.mandate_id, metric, n, seed);
 }
 
 // Paired on the SAME resampled mandates. Comparing two independent CIs answers a
