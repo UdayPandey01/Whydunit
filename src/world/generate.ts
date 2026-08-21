@@ -101,7 +101,20 @@ function errorCodeFor(cause: Cause, m: Mandate, rng: Rng): string {
   return weighted(rng, ERROR_CODE_WEIGHTS[key]!);
 }
 
+// Phase 2 needs the drawn population to replay counterfactual retries against the
+// same four processes. Exposed as a separate entry point so the RNG stream -- and
+// therefore every byte of Phase 1 output -- is untouched.
+export type World = {
+  records: WorldRecord[];
+  customers: Map<string, Customer>;
+  mandates: Map<string, Mandate>;
+};
+
 export function generateWorld(opts: GenerateOptions = {}): WorldRecord[] {
+  return generateWorldFull(opts).records;
+}
+
+export function generateWorldFull(opts: GenerateOptions = {}): World {
   const seed = opts.seed ?? SEED;
   const nMandates = opts.mandates ?? N_MANDATES;
   const horizonDays = opts.horizonDays ?? HORIZON_DAYS;
@@ -112,11 +125,15 @@ export function generateWorld(opts: GenerateOptions = {}): WorldRecord[] {
   const codeRng = makeRng(seed ^ 0x9e3779b9);
 
   const records: WorldRecord[] = [];
+  const customers = new Map<string, Customer>();
+  const mandates = new Map<string, Mandate>();
   const start = istParts(START_MS);
 
   for (let i = 0; i < nMandates; i++) {
     const customer = drawCustomer(rng, i);
     const mandate = drawMandate(rng, customer, i, endMs);
+    customers.set(customer.customer_id, customer);
+    mandates.set(mandate.mandate_id, mandate);
 
     let attemptIndex = 0;
     for (let mo = 0; mo <= Math.ceil(horizonDays / 28); mo++) {
@@ -188,5 +205,5 @@ export function generateWorld(opts: GenerateOptions = {}): WorldRecord[] {
     }
   }
 
-  return records;
+  return { records, customers, mandates };
 }
