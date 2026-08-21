@@ -104,3 +104,47 @@ different things, and nothing in the types distinguishes them. The lesson record
 here is that any filter reading `world.churned_at` on an attempt row is suspect and
 should be scoped by `cause` instead. That is worth remembering into Phase 3, where
 the agent will hold per-mandate state and ask per-attempt questions of it.
+
+---
+
+## #4 — 2026-08-21 — The agent recovered money in a month that was never simulated
+
+**Symptom.** The first full agent run reported 66.7% of at-risk rupees recovered.
+Phase 2's offline policy comparison, running the same cause-matched actions over
+the same 1,098 failures, reported 58.7%. Two implementations of one policy should
+not disagree by eight points.
+
+**First hypothesis.** The agent gets a fresh decision each pass around its loop
+while the offline simulator committed to one schedule up front, so the agent was
+simply getting more out of its three retries.
+
+**The diagnostic that disproved it.** Both give every failure the same budget of
+three, and the agent's own audit log showed 1,838 interventions against the offline
+run's comparable count — the budgets matched. So I stopped comparing totals and
+asked the audit log *when* the interventions were scheduled:
+`SELECT scheduled_at ... WHERE scheduled_at >= horizon_end`. 215 of them landed
+after day 90, and 93 of those were booked as recoveries.
+
+**Root cause.** The offline simulator had an explicit guard — a retry falling
+outside the observation horizon is neither spent nor credited — and I did not carry
+it into the agent. The world model happily answers questions about any timestamp,
+because `balanceAt` and the churn hazard are defined for all time. So the agent
+scheduled into April, the world adjudicated April, and 12% of its recoveries came
+from a month for which no data was ever generated. The C3 third action,
+"retry just after the next likely salary date", was 209 of the 215.
+
+**Fix and what it traded away.** `scheduleFor` now returns `null` when no legal
+slot exists inside the horizon, and the planner turns that into
+`escalate_to_human` rather than a silent no-op. Recovery fell to 58.5%, which
+matches the offline number. The trade is 183 escalations that a longer horizon
+would have let the agent handle itself, and it is the honest trade: the agent now
+refuses to act where it cannot account for the outcome.
+
+**What it changed about the design.** A world that answers every question will
+happily answer questions outside the data you generated, and nothing in the types
+marks the boundary. The horizon is now a named constant the planner consults
+(`HORIZON_END_MS`), a test asserts the planner proposes nothing beyond it, and the
+rule for Phase 4 is that any new component touching simulated time states its
+valid range explicitly. The bug was caught only because Phase 2 had produced an
+independent number for the same quantity; without that cross-check it would have
+shipped as a headline.

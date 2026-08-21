@@ -3,3 +3,6 @@ data/*.jsonl
 .venv/
 data/*.pkl
 data/*.json
+data/*.db
+data/*.db-wal
+data/*.db-shm
