@@ -15,7 +15,20 @@ function ruleCause(f: Record<string, number | null>): Cause {
   return "C3_BALANCE_SHORTFALL";
 }
 
-export function buildFixture(seed = 31, mandates = 120): Omit<AgentOptions, "dbPath" | "crashAfter"> {
+/** A degenerate one-hot distribution: enough for the crash proof, which cares
+ *  about durability rather than calibration. */
+function probaFor(cause: Cause): Record<Cause, number> {
+  return {
+    C1_EXECUTION_WINDOW: cause === "C1_EXECUTION_WINDOW" ? 0.97 : 0.01,
+    C2_NOTIFICATION_FAIL: cause === "C2_NOTIFICATION_FAIL" ? 0.97 : 0.01,
+    C3_BALANCE_SHORTFALL: cause === "C3_BALANCE_SHORTFALL" ? 0.97 : 0.01,
+    C4_CANCELLATION: cause === "C4_CANCELLATION" ? 0.97 : 0.01,
+  };
+}
+
+// 200, not 120: fixing the revoke bug removed post-revoke attempts, which cut
+// the fixture below the size its own "substantial enough" guard requires.
+export function buildFixture(seed = 31, mandates = 200): Omit<AgentOptions, "dbPath" | "crashAfter"> {
   const { records, customers, mandates: mandateMap } = generateWorldFull({ seed, mandates });
   const observations = observe(records, seed + 1);
   const obsById = new Map(observations.map((o) => [o.attempt_id, o]));
@@ -34,6 +47,7 @@ export function buildFixture(seed = 31, mandates = 120): Omit<AgentOptions, "dbP
         notification_dispatch_at: Date.parse(o.notification.dispatched_at),
         revoked_at: revoke === undefined ? null : Date.parse(revoke.timestamp),
         cause: ruleCause(featById.get(r.attempt_id)!),
+        proba: probaFor(ruleCause(featById.get(r.attempt_id)!)),
         // Deterministically routes ~12%, so escalate_to_human is exercised too.
         // The real router lives in src/exceptions.ts; the fixture only needs a
         // stable flag, not a good one.

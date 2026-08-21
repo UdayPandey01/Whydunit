@@ -7,6 +7,7 @@ import Database from "better-sqlite3";
 import { decide, runAgent, scheduleFor, HORIZON_END_MS } from "../src/agent/agent.ts";
 import type { WorkItem } from "../src/agent/agent.ts";
 import { CHECKS, checkConstraints, MAX_INTERVENTIONS_PER_CYCLE } from "../src/agent/constraints.ts";
+import { stopThreshold } from "../src/decision.ts";
 import type { Plan } from "../src/agent/constraints.ts";
 import { NOTIFY_MIN_LEAD_HOURS } from "../src/config.ts";
 import { isRestrictedTime } from "../src/schedule.ts";
@@ -91,19 +92,48 @@ test("checks are recorded as skipped, never silently passed", () => {
 });
 
 test("decide maps each cause to its matched action", () => {
-  const item = (cause: WorkItem["cause"], routed = false): WorkItem => ({
+  const item = (cause: WorkItem["cause"], routed = false, pC4 = 0.01): WorkItem => ({
     source_attempt: "a", mandate_id: "m", bank: "HDFC", failed_at: 0,
     notification_dispatch_at: 0, revoked_at: null, cause, confidence: 0.9,
     routed_to_exception_queue: routed,
+    proba: {
+      C1_EXECUTION_WINDOW: cause === "C1_EXECUTION_WINDOW" ? 0.9 : 0.02,
+      C2_NOTIFICATION_FAIL: cause === "C2_NOTIFICATION_FAIL" ? 0.9 : 0.02,
+      C3_BALANCE_SHORTFALL: cause === "C3_BALANCE_SHORTFALL" ? 0.9 : 0.02,
+      C4_CANCELLATION: pC4,
+    },
   });
-  assert.equal(decide(item("C1_EXECUTION_WINDOW"), 1, false), "reschedule");
-  assert.equal(decide(item("C2_NOTIFICATION_FAIL"), 1, false), "refire_notification_then_reschedule");
-  assert.equal(decide(item("C3_BALANCE_SHORTFALL"), 1, false), "reschedule");
-  assert.equal(decide(item("C4_CANCELLATION"), 1, false), "stop");
-  assert.equal(decide(item("C3_BALANCE_SHORTFALL"), 1, true), "stop", "an explicit revoke stops everything");
-  assert.equal(decide(item("C3_BALANCE_SHORTFALL", true), 1, false), "escalate_to_human");
-  assert.equal(decide(item("C1_EXECUTION_WINDOW"), 4, false), "escalate_to_human");
-  assert.equal(decide(item(null), 1, false), "escalate_to_human");
+  const act = (...args: Parameters<typeof decide>) => decide(...args).action;
+  assert.equal(act(item("C1_EXECUTION_WINDOW"), 1, false), "reschedule");
+  assert.equal(act(item("C2_NOTIFICATION_FAIL"), 1, false), "refire_notification_then_reschedule");
+  assert.equal(act(item("C3_BALANCE_SHORTFALL"), 1, false), "reschedule");
+  assert.equal(act(item("C3_BALANCE_SHORTFALL"), 1, true), "stop", "an explicit revoke stops everything");
+  assert.equal(act(item("C3_BALANCE_SHORTFALL", true), 1, false), "escalate_to_human");
+  assert.equal(act(item("C1_EXECUTION_WINDOW"), 4, false), "escalate_to_human");
+});
+
+test("stopping is cost-sensitive, not argmax", () => {
+  const withC4 = (pC4: number): WorkItem => ({
+    source_attempt: "a", mandate_id: "m", bank: "HDFC", failed_at: 0,
+    notification_dispatch_at: 0, revoked_at: null, cause: "C4_CANCELLATION",
+    confidence: pC4, routed_to_exception_queue: false,
+    proba: {
+      C1_EXECUTION_WINDOW: 0.01, C2_NOTIFICATION_FAIL: 0.01,
+      C3_BALANCE_SHORTFALL: 1 - pC4 - 0.02, C4_CANCELLATION: pC4,
+    },
+  });
+  const t = stopThreshold(20); // 0.952
+
+  // C4 is the argmax at 0.60, but nowhere near confident enough to abandon the
+  // money. The old argmax rule stopped here; this is the bug being fixed.
+  const marginal = decide(withC4(0.6), 1, false, t);
+  assert.equal(marginal.action, "reschedule");
+  assert.equal(marginal.cause, "C3_BALANCE_SHORTFALL", "must act on the best RETRYABLE cause");
+
+  assert.equal(decide(withC4(0.97), 1, false, t).action, "stop");
+  assert.equal(decide(withC4(0.951), 1, false, t).action, "reschedule", "just below the line keeps trying");
+  // A symmetric cost model reverts to argmax-like behaviour at 0.5.
+  assert.equal(decide(withC4(0.6), 1, false, stopThreshold(1)).action, "stop");
 });
 
 test("the planner never proposes a time outside the horizon", () => {
@@ -179,14 +209,44 @@ test("nothing effectful ever happened after a cancellation", () => {
   const revoked = new Map(
     fixture.work.filter((w) => w.revoked_at !== null).map((w) => [w.mandate_id, w.revoked_at!]),
   );
+  let examinedOnRevokedMandates = 0;
   for (const r of audit) {
     if (r.scheduled_at === null) continue;
+    // A vetoed plan still records the time it WOULD have used -- that is the
+    // audit doing its job. Only plans that actually reached the PSP count here.
+    if (r.outcome === "blocked_by_constraint") continue;
     assert.notEqual(r.cause, "C4_CANCELLATION", `${r.idempotency_key} scheduled a retry on a C4`);
     const rev = revoked.get(r.mandate_id as string);
     if (rev !== undefined) {
+      examinedOnRevokedMandates++;
       assert.ok(Date.parse(r.scheduled_at as string) < rev, `${r.idempotency_key} fired after revoke`);
     }
   }
+  // Non-vacuity, where the horizon makes it possible. At 90 days explicit churn is
+  // rare enough that a 200-mandate fixture can contain none at all, so this is
+  // conditional; the veto logic itself is covered unconditionally by the next test.
+  if (revoked.size > 0) {
+    assert.ok(examinedOnRevokedMandates > 0, "no effectful action was examined on a revoked mandate");
+  }
+});
+
+// The veto itself is tested directly rather than via a rare fixture coincidence:
+// since the revoke fix, a mandate's last attempt can precede its cancellation, so
+// the agent does propose retries landing after it, and the constraint must refuse.
+test("a retry scheduled past a revoke is vetoed", () => {
+  const rev = istMs(2026, 0, 10, 0, 0);
+  const r = checkConstraints(
+    { ...basePlan, decided_at: istMs(2026, 0, 5, 9, 0), scheduled_at: istMs(2026, 0, 12, 14, 0) },
+    { interventions_used: 0, revoked_at: rev },
+  );
+  assert.equal(r.ok, false);
+  assert.ok(r.failed.includes(CHECKS.NOT_CANCELLED));
+
+  const before = checkConstraints(
+    { ...basePlan, scheduled_at: istMs(2026, 0, 8, 14, 0) },
+    { interventions_used: 0, revoked_at: rev },
+  );
+  assert.ok(before.ok, "a retry landing before the revoke is still allowed");
 });
 
 test("the PSP saw one effect per scheduled intervention, and no more", () => {
