@@ -12,12 +12,17 @@
     "train": ".venv/bin/python eval/train.py",
     "eval": ".venv/bin/python eval/evaluate.py",
     "policy": "node src/cli.ts policy",
-    "all": "npm run generate && npm run features && npm run train && npm run eval && npm run policy",
+    "all": "npm run generate && npm run features && npm run train && npm run eval && npm run policy && npm run agent -- --fresh",
     "test": "node --test \"tests/**/*.test.ts\"",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "agent": "node src/cli.ts agent"
   },
   "devDependencies": {
+    "@types/better-sqlite3": "^9.6.0",
     "@types/node": "^22.20.1",
     "typescript": "^5.9.3"
+  },
+  "dependencies": {
+    "better-sqlite3": "^13.0.3"
   }
 }
