@@ -7,6 +7,8 @@
     "node": ">=22.6"
   },
   "scripts": {
+    "demo": "node src/cli.ts demo",
+    "inspect": "node src/cli.ts inspect",
     "generate": "node src/cli.ts generate",
     "features": "node src/cli.ts features",
     "train": ".venv/bin/python eval/train.py",
