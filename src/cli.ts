@@ -1,4 +1,6 @@
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { runAgent } from "./agent/agent.ts";
+import type { WorkItem } from "./agent/agent.ts";
 import { HORIZON_DAYS, SEED } from "./config.ts";
 import { computeFeatures } from "./features.ts";
 import { observe } from "./observe.ts";
@@ -114,7 +116,12 @@ function buildFeatures(): void {
   }
 }
 
-type Prediction = { attempt_id: string; predicted: Cause; rule_predicted: Cause };
+type Prediction = {
+  attempt_id: string;
+  predicted: Cause;
+  rule_predicted: Cause;
+  proba: Record<string, number>;
+};
 
 function runPolicies(): void {
   const PP = "[policy]";
@@ -202,12 +209,70 @@ function runPolicies(): void {
   console.log(`${PP} wrote data/policy.json`);
 }
 
+function runAgentCommand(): void {
+  const AP = "[agent]";
+  const dbPath = "data/agent.db";
+  if (process.argv.includes("--fresh")) {
+    for (const suffix of ["", "-wal", "-shm"]) rmSync(dbPath + suffix, { force: true });
+  }
+
+  const { records, customers, mandates } = generateWorldFull();
+  const observations = new Map(
+    readJsonl<ObservedAttempt>("data/observations.jsonl").map((o) => [o.attempt_id, o]),
+  );
+  const preds = new Map(
+    readJsonl<Prediction>("data/predictions.jsonl").map((p) => [p.attempt_id, p]),
+  );
+
+  const byId = new Map(records.map((r) => [r.attempt_id, r]));
+  const work: WorkItem[] = records
+    .filter((r) => !r.success)
+    .map((r) => {
+      const o = observations.get(r.attempt_id)!;
+      const p = preds.get(r.attempt_id);
+      const revoke = o.lifecycle_events[0];
+      return {
+        source_attempt: r.attempt_id,
+        mandate_id: r.mandate_id,
+        bank: r.bank,
+        failed_at: r.timestamp_ms,
+        notification_dispatch_at: Date.parse(o.notification.dispatched_at),
+        revoked_at: revoke === undefined ? null : Date.parse(revoke.timestamp),
+        cause: p === undefined ? null : p.predicted,
+        // Confidence is the model's own probability for the class it chose.
+        confidence: p === undefined ? 0 : Math.max(...Object.values(p.proba)),
+      };
+    });
+
+  mkdirSync("data", { recursive: true });
+  const resuming = existsSync(dbPath);
+  console.log(`${AP} ${work.length} failed attempts, db ${dbPath}${resuming ? " (resuming)" : " (new)"}`);
+  const s = runAgent({ dbPath, work, customers, mandates, records: byId });
+
+  console.log(`${AP} resumed ${s.resumed} in-flight intervention(s) from a previous run`);
+  console.log(`${AP} audit rows ${s.audit_rows}, PSP effects ${s.psp_effects}`);
+  console.log(`${AP} actions:`);
+  for (const [k, v] of Object.entries(s.by_action).sort((a, b) => b[1] - a[1])) {
+    console.log(`${AP}   ${k.padEnd(38)} ${String(v).padStart(5)}`);
+  }
+  console.log(`${AP} outcomes:`);
+  for (const [k, v] of Object.entries(s.by_outcome).sort((a, b) => b[1] - a[1])) {
+    console.log(`${AP}   ${k.padEnd(38)} ${String(v).padStart(5)}`);
+  }
+  console.log(`${AP} cycle end states:`);
+  for (const [k, v] of Object.entries(s.by_cycle_status).sort((a, b) => b[1] - a[1])) {
+    console.log(`${AP}   ${k.padEnd(38)} ${String(v).padStart(5)}`);
+  }
+  console.log(`${AP} recovered ${s.recovered_amount.toLocaleString("en-IN")} rupees`);
+}
+
 function main(): void {
   const command = process.argv[2];
   if (command === "features") return buildFeatures();
+  if (command === "agent") return runAgentCommand();
   if (command === "policy") return runPolicies();
   if (command !== "generate") {
-    console.error("usage: node src/cli.ts <generate|features|policy>");
+    console.error("usage: node src/cli.ts <generate|features|policy|agent>");
     process.exit(1);
   }
 
