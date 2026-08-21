@@ -35,7 +35,9 @@ without double-firing. Claude writes prose about the results and touches nothing
 | `src/agent/psp.ts` | The simulated PSP. The keyed ledger INSERT *is* the side effect. |
 | `src/agent/constraints.ts` | The four hard constraints and the branded `CheckedPlan`. |
 | `src/agent/agent.ts` | `decide` → `scheduleFor` → `checkConstraints` → `execute`, plus resume. |
-| `src/cli.ts` | `generate` \| `features` \| `report` \| `policy` \| `agent` \| `digest`. |
+| `src/ui.ts` | Terminal primitives: boxes, tables, bars, colour. Computes nothing. |
+| `src/copy.ts` | Human-readable labels. Mirrors the agent's action map, never leads it. |
+| `src/cli.ts` | `demo` \| `inspect` \| `generate` \| `features` \| `report` \| `policy` \| `agent` \| `digest`. |
 | `eval/train.py` | Fits HistGradientBoosting per split → `model.pkl`, `support.json`. |
 | `eval/evaluate.py` | P/R/F1, macro-F1, confusion, calibration, ECE, all with cluster-bootstrap CIs. |
 | `tests/*.test.ts` | Boundary, determinism, base rates, feature causality, constraints, crash-resume, routing, LLM containment. 54 tests. |
@@ -174,11 +176,27 @@ merchant's call to make, so both numbers are reported.
   scheduled into the next calendar month; collision with that month's own debit is
   unhandled.
 
-## 7. How to run
+## 7. Presentation layer
+
+`src/ui.ts` and `src/copy.ts` are display only: no result is computed, derived or
+rounded there. `demo` and `inspect` are **views** — they read finished artifacts
+(`report.json`, `policy.json`, `agent.db`, `observations.jsonl`) and render them,
+running no stage of the pipeline. Verified by running the whole pipeline with the
+pre-UI CLI and with the new one: every artifact and the agent database came out
+byte-identical.
+
+Colour is suppressed when `NO_COLOR` is set, `TERM=dumb`, or stdout is not a TTY.
+The Python eval output is deliberately untouched — it is the methodology report,
+not the demo surface.
+
+## 7b. How to run
 
 ```bash
 npm install
 python3.11 -m venv .venv && .venv/bin/pip install scikit-learn numpy
+npm run demo         # the dashboard: reads finished artifacts, computes nothing
+npm run inspect -- att_000334    # one payment, end to end
+
 npm run all          # generate → features → train → eval → report → policy → agent → digest
 npm test             # 54 tests
 npm run typecheck    # enforces the observation boundary at compile time
