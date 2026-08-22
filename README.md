@@ -1,83 +1,198 @@
 # WhyDunit
 
-**Most failed UPI AutoPay debits get retried on a timer. That is the wrong loop.**
+**Works out why each failed UPI AutoPay debit actually failed, then executes a bounded recovery action matched to that cause.**
 
-A debit that failed because it landed inside the NPCI 10:00–13:00 restricted window
-will fail again at T+24h, T+72h and T+168h — every one of those intervals preserves
-the hour. In our simulation, naive fixed-interval retry recovers **0.0%** of that
-class. A debit that failed because the customer quietly stopped paying will fail
-forever, and every retry spent on it is money burned on someone who has already left.
+> ### A third of what merchants write off as churn was never the customer.
+>
+> It was a debit presented inside a window NPCI blocks. A pre-debit notice that
+> never landed. A salary that arrived three days late. Retrying those on a timer
+> recovers a third of the money and burns the rest on customers who already left.
 
-WhyDunit works out **why** each debit failed, then executes a bounded action matched
-to that cause — under hard constraints, with an audit trail, and with an honest
-exception queue for the cases it cannot call.
+[![verify](https://github.com/udaypandey/whydunit/actions/workflows/verify.yml/badge.svg)](../../actions/workflows/verify.yml)
+&nbsp;·&nbsp; **[Live results dashboard →](https://claude.ai/code/artifact/28ac0396-cf18-4502-b19c-cc449b8230e0)**
+&nbsp;·&nbsp; 90-second walkthrough: _link pending_
 
-Razorpay AI Buildathon, Track 03.
-
----
-
-## The boundary, stated up front
-
-> **The adapter is real and is built against Razorpay test mode. The evaluation
-> corpus is simulated, because a labelled corpus of UPI AutoPay failures with known
-> ground truth does not exist outside a PSP. The simulator generates world state;
-> labels are emergent, not assigned.**
-
-Two further things we would rather say than be asked:
-
-- **The Razorpay adapter has never been run against live credentials.** There were
-  none in the build environment. Auth, retry, the SDK calls, webhook signature
-  verification and the event mapping are written and unit-tested; the 10–20 live
-  test-mode subscriptions were not run. Everything below marked *verified* was
-  verified against the docs, not against a live key.
-- **Only one of our four causes is inducible in Razorpay test mode.** See
-  [What test mode actually supports](#what-razorpay-test-mode-actually-supports).
-  We designed around that gap rather than hiding it.
+The badge is the claim: every number below is regenerated from a seed in CI and
+diffed against a committed manifest. It goes red if any of them moves.
 
 ---
 
 ## Results
 
-Seeded, reproducible, 270-day horizon, 1,983 mandates, 16,661 attempts, 3,116 failures.
+One seeded run. 1,983 mandates, 16,661 attempts, 3,116 failures, ₹20,87,484 at risk,
+270-day horizon. Rupees recovered as a share of rupees at risk; deltas are paired
+bootstrap against WhyDunit, 1,000 resamples clustered by mandate. Every policy gets
+the same budget of three retries.
 
-| | |
-|---|---|
-| **Classified** | 88.4% automatically, at macro-F1 **0.881** [0.857–0.901] |
-| **Routed to human review** | 11.6%, each with competing hypotheses and what would resolve them |
-| **Recovered** | **63.1%** of at-risk rupees, against 33.3% for naive retry |
-| **Retries spent** | **1.79** per failure, against 2.67 for naive retry |
-| **Ceiling** | 64.8% — what a policy with perfect knowledge of the true cause achieves |
+| Policy | Recovered | Retries / failure | Δ vs WhyDunit (95% CI) | |
+|---|---:|---:|---:|---|
+| Do nothing | 0.0% | 0.00 | −63.1pp | loses |
+| Naive retry `T+24/72/168h` | 33.3% | 2.67 | −29.8pp `[24.8, 35.5]` | loses |
+| Window-aware retry | 49.9% | 2.31 | −13.1pp `[8.8, 18.6]` | loses |
+| Expert rule (4 if-statements) | 62.9% | 1.95 | −0.1pp `[−0.6, 0.8]` | **ties** |
+| **WhyDunit** | **63.1%** | **1.79** | — | — |
+| Oracle (knows the true cause) | 64.8% | 1.43 | +1.7pp `[0.9, 2.7]` | ceiling |
 
-Against naive retry: **+29.8pp** recovered [24.8, 35.5], paired bootstrap, 95% CI.
+Attribution: **88.4% auto-classified at macro-F1 0.881** `[0.857, 0.901]`, 11.6%
+routed to human review with competing hypotheses attached.
 
-### Where the recovery actually comes from
+**The tie is the honest headline.** WhyDunit matches a hand-written four-line rule
+on rupees while spending 8% fewer retries (−0.15 per failure, CI `[−0.19, −0.12]`).
+It beats that rule decisively on *attribution* — +0.181 macro-F1 out-of-fold — but
+on recovered revenue the difference straddles zero, so **the rule remains the
+production retry policy**. The model earns its place in the exception queue and the
+merchant report, not yet in the retry decision.
 
-| Cause | Naive retry | WhyDunit |
-|---|---|---|
-| C1 execution window | **0.0%** | 88.6% |
-| C2 notification failure | 42.0% | 83.8% |
-| C3 balance shortfall | 52.0% | 67.7% |
-| C4 cancellation | 0.0% | 0.0% — correctly, it stops instead of spending |
+### The class a timer can never fix
 
-### And the part we do not claim
+NPCI blocks AutoPay execution between 10:00 and 13:00 IST. T+24h, T+72h and T+168h
+all preserve the hour of day, so a fixed-interval retry lands right back inside the
+window — every time.
 
-Against a hand-written four-line expert rule, the gradient-boosted model **ties on
-rupees recovered at every horizon we tested** (90/180/270/360 days). It is
-significantly cheaper on retries from 180 days on, and significantly better at
-attribution (+0.141 → +0.201 macro-F1). So:
+| C1 · execution window | Naive fixed-interval retry | WhyDunit |
+|---|---:|---:|
+| Recovered | **0.0%** | **88.6%** |
 
-> **The rule remains the production retry policy.** The model earns its place in the
-> exception queue and the merchant report, not yet in the retry decision.
-
-The model's entire edge is silent churn — cancellation with no webhook — which is
-identified by failure *invariance* across repeated attempts, something a rule
-evaluating one attempt in isolation cannot express. That edge does not exist at a
-90-day horizon because there are not enough attempts per mandate for invariance to
-show. `INCIDENTS.md` #8 has the horizon sweep that settled it.
+605 failures here, 19.4% of all failures. Holds across horizons: 91.1% at 90 days,
+88.6% at 270, 90.7% at 360. Roughly half of WhyDunit's total lead over naive retry
+comes from knowing this one published rule — no classifier required.
 
 ---
 
-## Integrate it in ten lines
+## How it decides
+
+Four causes. Each moves with something different and is invariant to the rest.
+
+| Class | Varies with | Invariant to | Share | Naive | WhyDunit |
+|---|---|---|---:|---:|---:|
+| **C1** execution window | hour of day | customer, bank, amount | 19.4% | 0.0% | 88.6% |
+| **C2** notification failure | bank, burst window | customer, amount, hour | 10.7% | 42.0% | 83.8% |
+| **C3** balance shortfall | customer, day-of-month | bank, hour | 45.5% | 52.0% | 67.7% |
+| **C4** cancellation | nothing | everything | 12.8% | 0.0% | 0.0% |
+
+C4 is identified by failure **invariance** — nothing fixes it — so it is always the
+last conclusion, never the default. It recovers nothing by design: the point is to
+*stop* rather than spend. Stopping requires `P(C4) ≥ 0.952`, derived from a cost
+matrix where a wrongful stop forfeits an entire mandate and a wrongful retry costs
+one retry. The full threshold sweep prints on every policy run, so the operating
+point is visibly chosen rather than tuned.
+
+---
+
+## Quickstart
+
+Cold clone to full pipeline in under five minutes, either way.
+
+```bash
+git clone <repo> whydunit && cd whydunit
+docker compose up            # ~50s build, ~20s run. Nothing else needed.
+```
+
+Or without Docker (needs Node 24+ and Python 3.11):
+
+```bash
+npm install
+python3.11 -m venv .venv && .venv/bin/pip install -r requirements.txt
+npm run all                  # generate → features → train → eval → report → policy → agent → digest
+npm run demo                 # the dashboard
+npm run verify               # regenerates from seed, exits non-zero if any number moved
+```
+
+Both were tested on a fresh clone into `/tmp`, not assumed.
+
+---
+
+## Look at one payment end to end
+
+```bash
+npm run explain mdt_00004
+```
+
+Walks a single mandate: what was observable, what was **not**, the invariance test
+across hour / bank / day-of-month / recent run, competing hypotheses with calibrated
+probabilities, the attribution, the action, every constraint check, the outcome —
+and ground truth **last**, marked evaluation-only.
+
+| Command | Case |
+|---|---|
+| `npm run explain mdt_00004` | **C1, the hero case.** Debited at 11:00, inside the restricted window. Naive retry recovers 0% of these. |
+| `npm run explain mdt_00012` | **C2.** Notice sent 18.3h before the debit, under the 24h NPCI minimum. Caught from dispatch evidence alone. |
+| `npm run explain mdt_00060` | **C4 silent churn, the hard case.** No revoke webhook. Found only by invariance: 3 consecutive failures across 6 different hours, on a bank behaving normally, notice confirmed delivered. Its bank signal is a genuine false lead the model must see past. |
+
+Stable for `seed 20260903` at `HORIZON_DAYS=270`; `verify` fails if that drifts.
+
+---
+
+## Architecture
+
+```
+                    ┌── the boundary ───────────────────────────────┐
+  world processes   │                                               │
+  ┌──────────────┐  │  observations          features               │
+  │ window   C1  │  │  merchant-visible      6 invariance families   │
+  │ notify   C2  ├──┼─► only                 strictly point-in-time  │
+  │ balance  C3  │  │       │                      │                 │
+  │ churn    C4  │  │       ▼                      ▼                 │
+  └──────────────┘  │  exception router ◄──── classifier + rule      │
+   ground truth ────┘       │                      │                 │
+   never read downstream    ▼                      ▼                 │
+                       human review        cost-sensitive stop       │
+                                                   │                 │
+                                    ┌──────────────▼──────────────┐  │
+                                    │ agent: 4 hard constraints,  │  │
+                                    │ audit log, crash-resume     │  │
+                                    └──────────────┬──────────────┘  │
+                                                   ▼                 │
+                                       PspClient ──┴── SimulatedPsp  │
+                                                   └── RazorpayPsp ──┘
+```
+
+One rule governs everything: **generate world state, derive observations from it,
+hide the world, classify from observations only.** The generator never takes a label
+as input — labels are emergent, whichever process blocked the debit first. A test
+walks the serialized observation records and asserts their key set exactly matches
+the declared merchant-visible allowlist, with a positive control proving the same
+walker *does* find ground truth in the world file. Downstream, four hard constraints
+are load-bearing in the type system: `checkConstraints` is the only function that can
+mint a `CheckedPlan`, and the executor accepts nothing else, so no code path reaches
+a PSP unchecked.
+
+---
+
+## Honest limitations
+
+Read this before believing anything above.
+
+- **The evaluation corpus is simulated.** A labelled corpus of UPI AutoPay failures
+  with known ground truth does not exist outside a PSP. The simulator generates world
+  state; labels are emergent, not assigned. This is the single biggest caveat and it
+  is not going away with more engineering.
+- **The Razorpay adapter is real but unproven.** It is written against test mode with
+  auth, retry, webhook signature verification and event mapping unit-tested — and it
+  has **never run against live credentials**. Only one of the four causes (balance
+  shortfall) is inducible in Razorpay test mode at all; test mode has no time
+  advancement, no control over which decline reason comes back, and no
+  merchant-triggerable pre-debit notification. The full gap table is in `DESIGN.md`.
+- **Notification failure is inferred, not observed.** C2 comes from the merchant's own
+  dispatch log plus bank-level burst statistics. Whether the bank actually delivered
+  the notice is never observable — by construction, because it is not observable in
+  reality either.
+- **Five banks.** Bank-relative features generalise to the two held out of training,
+  but five is a small population to claim that from.
+- **Silent-churn recall is horizon-dependent: 0.556 here, 0.718 at 360 days, and
+  0.000 at 90 days.** Invariance needs repeated attempts before it can be seen at all.
+  At a 90-day horizon a mandate gets at most three attempts and the signature has no
+  room to appear — which is also why the model ties the expert rule there and only
+  pulls ahead from 180 days on.
+- **Calibration is adequate, not tight.** ECE 0.093 on the mandate split — good enough
+  to threshold on directly, so no isotonic calibrator was fitted.
+- **The time split is proportional (2/3), not a fixed date.** An earlier fixed day-60
+  boundary trained on 745 rows at a 360-day horizon and made cross-horizon numbers
+  incomparable; that is fixed, and the 360-day split now trains on 2,790 rows.
+
+---
+
+## Integrate it
 
 ```ts
 import { Whydunit, RazorpayPsp } from "whydunit";
@@ -88,189 +203,29 @@ const w = new Whydunit({
   maxInterventions: 3,
 });
 
-const attributions = await w.attribute(observations);   // no side effects
-const plan         = await w.plan(attributions);        // still no side effects
+const attributions = await w.attribute(observations);     // no side effects
+const plan         = await w.plan(attributions);          // still no side effects
 const result       = await w.execute(plan, observations); // respects every constraint
 ```
 
-Three methods, each usable standalone. A merchant who wants attribution only is
-never forced through execution. `examples/ten-lines.ts` is this, runnable against
-the simulator with no credentials.
+Three methods, each usable standalone — attribution-only never forces you through
+execution. `examples/ten-lines.ts` is this, runnable against the simulator with no
+credentials. The agent talks to one `PspClient` interface and cannot tell which
+implementation it holds: `tests/seam.test.ts` runs the same cycle against the
+simulator and against a scripted PSP sharing no code with it, asserting the audit
+trails match row for row.
 
 ---
 
-## The seam
+## Further reading
 
-One interface. The agent cannot tell which implementation it holds.
+- **[DESIGN.md](DESIGN.md)** — the live map: module by module, every key decision and
+  its reason, the Razorpay test-mode gap table, and what is deliberately not built.
+- **[INCIDENTS.md](INCIDENTS.md)** — thirteen real failures, written when they
+  happened: symptom → first hypothesis → the diagnostic that disproved it → root
+  cause → fix and what it traded. Including an abstention rule that made the exception
+  queue worse than no queue, a digest that silently reported the previous cycle's
+  numbers, and a regression that halved recovery and was caught only by the first
+  clean-clone Docker run.
 
-```ts
-interface PspClient {
-  fetchFailedDebits(since: Date): Promise<Observation[]>;
-  scheduleDebit(mandateId, at: Date, idempotencyKey): Promise<Result>;
-  sendPreDebitNotification(mandateId, idempotencyKey): Promise<Result>;
-  cancelMandate(mandateId, idempotencyKey): Promise<Result>;
-}
-```
-
-- **`SimulatedPsp`** — the seeded world. Default, no credentials, no network.
-- **`RazorpayPsp`** — the real test-mode API via the official SDK.
-
-`tests/seam.test.ts` runs the same agent cycle against the simulator and against a
-scripted PSP that shares no code with it, and asserts the audit trails are
-**identical row for row**. It also runs the agent against a PSP that says yes to
-everything and asserts the intervention budget still holds — the constraints live
-in the agent, not in the implementation.
-
----
-
-## What Razorpay test mode actually supports
-
-Checked against the docs on 2026-08-22, before designing the adapter.
-
-**Works:**
-
-- Subscription, plan and customer creation
-- Auth payment with test cards and test UPI IDs
-- On-demand charges via the dashboard's *Charge this now*
-- Choosing charge outcome — success or failure — up to 4 consecutive failures
-- Webhooks: HMAC-SHA256 over the raw body, `X-Razorpay-Signature`
-
-**Does not work, and what we did about it:**
-
-| Gap | Consequence | What we did |
-|---|---|---|
-| No time advancement | Cannot build multi-month attempt histories | Invariance (C4) is unreachable in test mode; the corpus stays simulated |
-| Cannot choose *which* decline reason | C1/C2/C4 cannot be induced | Only C3 (`insufficient_funds`) is inducible live |
-| Cannot control the hour of a charge | C1 is defined entirely by the debit landing in 10:00–13:00 IST | C1 is derived from the attempt timestamp, which the adapter already holds — no code needed |
-| Pre-debit notification is not merchant-triggerable | C2 cannot be induced or re-issued | `sendPreDebitNotification` returns `unsupported` on the Razorpay path rather than pretending |
-| Subsequent token debit only within 3 days of token creation | Long histories impossible | Simulated corpus |
-| UPI Collect deprecated 28 Feb 2026 | Mandates cannot be registered by typing a VPA; intent flow needs a real UPI app | Headless registration is not possible |
-
-**The decline-code gap list.** Razorpay's published UPI error list has no code for
-*mandate revoked*, *pre-debit notification not delivered*, or *debit rejected for
-the execution window*. `src/psp/razorpay-codes.ts` maps only what is documented and
-records every gap in an `UNMAPPED` table with the workaround for each. A test
-asserts at most two Razorpay codes are ever treated as evidence for one of our
-causes, so the table cannot quietly grow invented rows.
-
-One structural difference is worth flagging: a real debit returns **`pending`**.
-Razorpay accepts the instruction and the outcome arrives later by webhook, so the
-agent cannot learn the result inside the same cycle. The interface models this
-honestly and the agent leaves the cycle open for a later resume.
-
----
-
-## Run it
-
-```bash
-npm install
-python3.11 -m venv .venv && .venv/bin/pip install scikit-learn numpy
-
-npm run all      # generate → features → train → eval → report → policy → agent → digest
-npm run demo     # the dashboard
-npm run verify   # reproducibility proof; exits non-zero on any mismatch
-```
-
-`npm run verify` regenerates the world from the seed, re-hashes ten artifacts against
-`reference/manifest.json`, and names the exact metric that moved if one does. Proven
-to fail: corrupting one field of `policy.json` exits 1. `--full` re-runs the whole
-pipeline, which is the only way to catch a change on the Python side.
-
-### The three reference cases
-
-`npm run explain <mandate_id>` walks one mandate end to end: what was observable,
-what was **not** observable, the invariance test, competing hypotheses with
-calibrated probabilities, the attribution, the action, every constraint check, the
-outcome — and ground truth **last**, marked evaluation-only.
-
-| Command | What it shows |
-|---|---|
-| `npm run explain mdt_00004` | **C1 — the hero case.** Debited at 11:00, inside the restricted window. Naive retry recovers 0% of these. |
-| `npm run explain mdt_00012` | **C2.** Notice sent 18.3h before the debit, under the 24h NPCI minimum. Caught from dispatch evidence alone. |
-| `npm run explain mdt_00060` | **C4 silent churn — the hard case.** No revoke webhook. Identified only by invariance: 3 consecutive failures across 6 different hours, on a bank behaving normally, notice confirmed delivered. Its bank signal is a genuine false lead the model has to see past. |
-
-Stable for `seed 20260903` at `HORIZON_DAYS=270`. `verify` fails if that drifts.
-
----
-
-## How it decides
-
-Four causes, each with a different **invariance signature**:
-
-| Class | Varies with | Invariant to |
-|---|---|---|
-| C1 execution window | hour of day | customer, bank, amount |
-| C2 notification failure | bank, burst window | customer, amount, hour |
-| C3 balance shortfall | customer, day-of-month | bank, hour |
-| C4 cancellation | nothing | everything |
-
-C4 is identified by failure invariance — nothing fixes it — so it is always the last
-conclusion, never the default.
-
-**Stopping is cost-sensitive, not argmax.** Argmax prices a wrongful stop and a
-wrongful retry the same. They are not the same: a wrongful stop forfeits an entire
-mandate, a wrongful retry costs one retry. The threshold comes from that ratio
-(`P(C4) ≥ ratio/(ratio+1)`), and the full sweep from 0.50 to 0.95 is printed on
-every policy run so the operating point is visibly chosen rather than tuned.
-
-**Four hard constraints, enforced in code and load-bearing in the type system.**
-`checkConstraints` is the only function that can mint a `CheckedPlan`, and the
-executor accepts nothing else — there is no path to the PSP that skips them.
-
-1. Max 3 interventions per mandate per cycle
-2. Never schedule inside the restricted window
-3. Never schedule a debit within 24h of the notification
-4. Never retry after a cancellation
-
-Every decision writes an audit record with which checks passed, failed, or did not
-apply — never "passed" when a check simply did not apply.
-
-**Crash-safe.** `tests/crash.test.ts` SIGKILLs the agent at 30 distinct points,
-resumes, and asserts the PSP ledger and audit log match an uninterrupted run exactly.
-Injecting a non-deterministic idempotency key makes it fail, so the test is known to
-bite.
-
----
-
-## The one rule
-
-**Generate world state. Derive observations from it. Hide the world. Classify from
-observations only.** The generator never takes a label as input — labels are
-emergent, whichever world process blocked the debit first. A test walks the
-serialized observation records and asserts the key set exactly matches the declared
-merchant-visible allowlist, with a positive control proving the same walker *does*
-find ground truth in the world file.
-
----
-
-## Honesty ledger
-
-`INCIDENTS.md` has ten real failures, written when they happened, each with symptom →
-first hypothesis → the diagnostic that disproved it → root cause → fix and what it
-traded. Including the ones that are embarrassing:
-
-- An abstention rule that made the exception queue *worse* than no queue
-- Silent-churn recall of 0.000, misdiagnosed as a model failure when it was a data
-  limitation — a horizon sweep settled it
-- Two policy bugs, where the smaller one was hiding behind the larger
-- A merchant digest that reported the previous cycle's recovery figures, invisible
-  because determinism made stale data look identical to fresh
-
-Three entries are marked as backfilled, because they were written after the fact —
-which is exactly what that file exists to prevent.
-
----
-
-## Layout
-
-```
-src/psp/          the seam: PspClient, SimulatedPsp, RazorpayPsp, webhook receiver
-src/world/        the simulator: four independent blocking processes
-src/observe.ts    THE BOUNDARY — merchant-visible fields only
-src/features.ts   six invariance families, strictly point-in-time
-src/agent/        constraints, durable loop, crash-resume, audit log
-src/whydunit.ts   the public API: attribute / plan / execute
-eval/             scikit-learn training and the evaluation battery
-```
-
-`DESIGN.md` is the live map. 65 tests, `npm test`.
+MIT licensed. 67 tests — `npm test`.

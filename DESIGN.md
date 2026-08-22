@@ -254,3 +254,23 @@ npm run typecheck    # enforces the observation boundary at compile time
 npm run digest -- --explain   # adds Claude prose; needs ANTHROPIC_API_KEY.
                               # Without it the pipeline runs identically, minus prose.
 ```
+
+## 10. Reproducibility and packaging
+
+`docker compose up` runs the whole pipeline in one image: Node 24.19.0 for the
+TypeScript stages, Python 3.11 with an exact `requirements.txt` for training and
+evaluation. The build fails if the committed source does not typecheck. Verified by
+cloning into `/tmp` and running it there — ~50s cold build, ~20s pipeline.
+
+`.github/workflows/verify.yml` runs typecheck, tests, the full pipeline and
+`npm run verify` on every push. The badge is the reproducibility claim executed
+rather than asserted.
+
+Hygiene sweep at Phase 7 found and fixed two things. `src/world/window.ts` had been
+dead since the schedule helpers were extracted in Phase 3; deleting it exposed that
+`generate.ts` hardcoded the restricted window as `hour >= 10 && hour < 13` instead of
+reading it through `isRestrictedTime`, so the generator and the counterfactual replay
+would have disagreed about C1 the moment `RESTRICTED_START_HOUR` changed. Fixed;
+`world.jsonl` is byte-identical after the change. No secrets, no `.env`, no
+`Math.random` anywhere in `src/`, and no `Date.now()` in the world, agent or PSP —
+simulated time and wall-clock time do not mix.
