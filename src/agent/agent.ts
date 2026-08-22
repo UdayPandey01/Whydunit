@@ -3,10 +3,8 @@ import { decideCause, stopThreshold } from "../decision.ts";
 import { hash32, makeRng } from "../rng.ts";
 import { cycleOf, nextMonthDay, SAFE_HOUR, toSafeHour } from "../schedule.ts";
 import { DAY_MS, HOUR_MS, istMs, istParts, toIso } from "../time.ts";
-import { wasDeliveredByBank } from "../world/notification.ts";
-import { attemptAt } from "../world/replay.ts";
-import type { Notify } from "../world/replay.ts";
-import type { Cause, Customer, Mandate, WorldRecord } from "../world/types.ts";
+import type { PspClient } from "../psp/types.ts";
+import type { Cause } from "../world/types.ts";
 import { CHECKS, checkConstraints, EFFECTFUL, MAX_INTERVENTIONS_PER_CYCLE } from "./constraints.ts";
 import type { ActionName, CheckedPlan, Plan } from "./constraints.ts";
 import { openDb } from "./db.ts";
@@ -40,11 +38,8 @@ export type WorkItem = {
 export type AgentOptions = {
   dbPath: string;
   work: WorkItem[];
-  // Adjudication only. The agent never reads these to make a decision; they are
-  // the world answering "would that retry have worked".
-  customers: Map<string, Customer>;
-  mandates: Map<string, Mandate>;
-  records: Map<string, WorldRecord>;
+  /** The only way out to the world. The agent cannot tell which one it holds. */
+  psp: PspClient;
   crashAfter?: number;
   /** Cost-derived P(C4) above which stopping is the cheaper bet. */
   stopThreshold?: number;
@@ -121,29 +116,20 @@ function cycleState(db: Db, mandate: string, cycle: string): CycleRow {
     .get(mandate, cycle) as CycleRow;
 }
 
-function notifyFor(opts: AgentOptions, item: WorkItem, plan: Plan): Notify {
-  if (plan.action === "refire_notification_then_reschedule") {
-    const dispatchMs = plan.notification_dispatch_at!;
-    // Seeded from the idempotency key so a replayed fire re-draws identically.
-    const rng = makeRng(hash32(plan.idempotency_key));
-    return { dispatchMs, delivered: wasDeliveredByBank(item.bank, dispatchMs, rng) };
-  }
-  const rec = opts.records.get(item.source_attempt)!;
-  return {
-    dispatchMs: item.notification_dispatch_at,
-    delivered: rec.world.notification_delivered_by_bank,
-  };
-}
-
 // The ONLY function that produces an effect, and it accepts nothing but a
 // CheckedPlan, so an unchecked plan cannot reach the PSP.
-function execute(db: Db, opts: AgentOptions, item: WorkItem, plan: CheckedPlan) {
-  const customer = opts.customers.get(opts.records.get(item.source_attempt)!.customer_id)!;
-  const mandate = opts.mandates.get(item.mandate_id)!;
-  const notify = notifyFor(opts, item, plan);
-  return fire(db, plan.idempotency_key, plan.mandate_id, toIso(plan.scheduled_at!), () =>
-    attemptAt(customer, mandate, plan.scheduled_at!, notify),
-  );
+async function execute(db: Db, opts: AgentOptions, item: WorkItem, plan: CheckedPlan) {
+  return fire(db, plan.idempotency_key, plan.mandate_id, toIso(plan.scheduled_at!), async (key) => {
+    if (plan.action === "refire_notification_then_reschedule") {
+      await opts.psp.sendPreDebitNotification(plan.mandate_id, key + ":notify");
+    }
+    const res = await opts.psp.scheduleDebit(plan.mandate_id, new Date(plan.scheduled_at!), key);
+    return {
+      success: res.status === "succeeded",
+      blockers: res.reason === null ? [] : res.reason.split("+").filter(Boolean),
+    };
+  });
+  void item;
 }
 
 function recordIntent(db: Db, plan: Plan, checks: { passed: string[]; failed: string[]; skipped: string[] }) {
@@ -222,7 +208,7 @@ type PendingRow = {
  * happened the ledger returns the stored result, and if it did not, it happens
  * now. Correctness does not depend on knowing where the crash landed.
  */
-function resumePending(db: Db, opts: AgentOptions): number {
+async function resumePending(db: Db, opts: AgentOptions): Promise<number> {
   const rows = db.prepare("SELECT * FROM audit_log WHERE status='pending'").all() as PendingRow[];
   const byAttempt = new Map(opts.work.map((w) => [w.source_attempt, w]));
   for (const r of rows) {
@@ -244,7 +230,7 @@ function resumePending(db: Db, opts: AgentOptions): number {
           ? Date.parse(r.scheduled_at) - (NOTIFY_MIN_LEAD_HOURS + 2) * HOUR_MS
           : item.notification_dispatch_at,
     };
-    const res = execute(db, opts, item, plan as CheckedPlan);
+    const res = await execute(db, opts, item, plan as CheckedPlan);
     completeIntervention(db, r.idempotency_key, r.mandate_id, r.cycle, res.success);
   }
   return rows.length;
@@ -252,7 +238,7 @@ function resumePending(db: Db, opts: AgentOptions): number {
 
 // ---------- the loop ----------
 
-function processItem(db: Db, opts: AgentOptions, item: WorkItem, cycle: string, threshold: number): void {
+async function processItem(db: Db, opts: AgentOptions, item: WorkItem, cycle: string, threshold: number): Promise<void> {
   for (;;) {
     const st = cycleState(db, item.mandate_id, cycle);
     if (st.status !== "open") return;
@@ -310,7 +296,7 @@ function processItem(db: Db, opts: AgentOptions, item: WorkItem, cycle: string, 
 
     recordIntent(db, plan, checks);
     checkpoint(); // crash here: intent committed, effect not yet attempted
-    const res = execute(db, opts, item, checks.plan);
+    const res = await execute(db, opts, item, checks.plan);
     checkpoint(); // crash here: effect committed, outcome not yet recorded
     completeIntervention(db, plan.idempotency_key, plan.mandate_id, cycle, res.success);
     checkpoint(); // crash here: everything committed
@@ -324,17 +310,16 @@ export type AgentSummary = {
   by_action: Record<string, number>;
   by_outcome: Record<string, number>;
   by_cycle_status: Record<string, number>;
-  recovered_amount: number;
 };
 
-export function runAgent(opts: AgentOptions): AgentSummary {
+export async function runAgent(opts: AgentOptions): Promise<AgentSummary> {
   const db = openDb(opts.dbPath);
   crashBudget = opts.crashAfter ?? null;
   try {
-    const resumed = resumePending(db, opts);
+    const resumed = await resumePending(db, opts);
     const work = [...opts.work].sort((a, b) => a.failed_at - b.failed_at);
     const threshold = opts.stopThreshold ?? stopThreshold(DEFAULT_COST_RATIO);
-    for (const item of work) processItem(db, opts, item, cycleOf(item.failed_at), threshold);
+    for (const item of work) await processItem(db, opts, item, cycleOf(item.failed_at), threshold);
     return summarise(db, opts, resumed);
   } finally {
     crashBudget = null;
@@ -348,10 +333,7 @@ function tally(db: Db, sql: string): Record<string, number> {
   return out;
 }
 
-function summarise(db: Db, opts: AgentOptions, resumed: number): AgentSummary {
-  const recovered = db
-    .prepare("SELECT mandate_id FROM audit_log WHERE outcome='recovered'")
-    .all() as { mandate_id: string }[];
+function summarise(db: Db, _opts: AgentOptions, resumed: number): AgentSummary {
   return {
     audit_rows: (db.prepare("SELECT COUNT(*) n FROM audit_log").get() as { n: number }).n,
     psp_effects: (db.prepare("SELECT COUNT(*) n FROM psp_ledger").get() as { n: number }).n,
@@ -359,6 +341,5 @@ function summarise(db: Db, opts: AgentOptions, resumed: number): AgentSummary {
     by_action: tally(db, "SELECT action k, COUNT(*) n FROM audit_log GROUP BY action"),
     by_outcome: tally(db, "SELECT outcome k, COUNT(*) n FROM audit_log GROUP BY outcome"),
     by_cycle_status: tally(db, "SELECT status k, COUNT(*) n FROM cycle_state GROUP BY status"),
-    recovered_amount: recovered.reduce((a, r) => a + (opts.mandates.get(r.mandate_id)?.amount ?? 0), 0),
   };
 }

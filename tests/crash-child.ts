@@ -6,4 +6,4 @@ import { buildFixture } from "./fixture.ts";
 const dbPath = process.argv[2]!;
 const crashAfter = Number(process.argv[3] ?? 0);
 const fixture = buildFixture();
-runAgent({ dbPath, ...fixture, crashAfter: crashAfter > 0 ? crashAfter : undefined });
+await runAgent({ dbPath, ...fixture, crashAfter: crashAfter > 0 ? crashAfter : undefined });

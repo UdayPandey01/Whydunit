@@ -2,7 +2,7 @@ import { computeFeatures } from "../src/features.ts";
 import { observe } from "../src/observe.ts";
 import { hash32 } from "../src/rng.ts";
 import type { AgentOptions, WorkItem } from "../src/agent/agent.ts";
-import { generateWorldFull } from "../src/world/generate.ts";
+import { SimulatedPsp } from "../src/psp/simulated.ts";
 import type { Cause } from "../src/world/types.ts";
 
 // The expert-rule predictor from eval/evaluate.py, in TypeScript. Tests must not
@@ -29,7 +29,8 @@ function probaFor(cause: Cause): Record<Cause, number> {
 // 200, not 120: fixing the revoke bug removed post-revoke attempts, which cut
 // the fixture below the size its own "substantial enough" guard requires.
 export function buildFixture(seed = 31, mandates = 200): Omit<AgentOptions, "dbPath" | "crashAfter"> {
-  const { records, customers, mandates: mandateMap } = generateWorldFull({ seed, mandates });
+  const psp = new SimulatedPsp({ seed, mandates });
+  const { records } = psp.world();
   const observations = observe(records, seed + 1);
   const obsById = new Map(observations.map((o) => [o.attempt_id, o]));
   const featById = new Map(computeFeatures(observations).map((r) => [r.attempt_id, r.features]));
@@ -56,5 +57,5 @@ export function buildFixture(seed = 31, mandates = 200): Omit<AgentOptions, "dbP
       };
     });
 
-  return { work, customers, mandates: mandateMap, records: new Map(records.map((r) => [r.attempt_id, r])) };
+  return { work, psp };
 }

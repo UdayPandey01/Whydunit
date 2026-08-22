@@ -150,7 +150,7 @@ test("the planner never proposes a time outside the horizon", () => {
 const dir = mkdtempSync(join(tmpdir(), "whydunit-agent-"));
 const dbPath = join(dir, "agent.db");
 const fixture = buildFixture();
-const summary = runAgent({ dbPath, ...fixture });
+const summary = await runAgent({ dbPath, ...fixture });
 const db = new Database(dbPath, { readonly: true });
 const audit = db.prepare("SELECT * FROM audit_log").all() as Record<string, string | number | null>[];
 

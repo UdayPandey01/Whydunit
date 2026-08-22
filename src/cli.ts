@@ -20,6 +20,7 @@ import type { ObservedAttempt } from "./observe.ts";
 import { bootstrapCI, pairedDeltaCI, runPolicy, schedulesFor } from "./policy.ts";
 import type { PolicyOutcome } from "./policy.ts";
 import { assignSplits } from "./splits.ts";
+import { SimulatedPsp } from "./psp/simulated.ts";
 import { generateWorld, generateWorldFull } from "./world/generate.ts";
 import type { Cause, WorldRecord } from "./world/types.ts";
 import {
@@ -345,14 +346,15 @@ function runPolicies(): void {
   console.log(`${PP} wrote data/policy.json`);
 }
 
-function runAgentCommand(): void {
+async function runAgentCommand(): Promise<void> {
   const AP = "[agent]";
   const dbPath = "data/agent.db";
   if (process.argv.includes("--fresh")) {
     for (const suffix of ["", "-wal", "-shm"]) rmSync(dbPath + suffix, { force: true });
   }
 
-  const { records, customers, mandates } = generateWorldFull();
+  const psp = new SimulatedPsp();
+  const { records } = psp.world();
   const observations = new Map(
     readJsonl<ObservedAttempt>("data/observations.jsonl").map((o) => [o.attempt_id, o]),
   );
@@ -366,7 +368,6 @@ function runAgentCommand(): void {
     readJsonl<{ attempt_id: string }>("data/exceptions.jsonl").map((e) => e.attempt_id),
   );
 
-  const byId = new Map(records.map((r) => [r.attempt_id, r]));
   const work: WorkItem[] = records
     .filter((r) => !r.success)
     .map((r) => {
@@ -392,7 +393,9 @@ function runAgentCommand(): void {
   const resuming = existsSync(dbPath);
   ui.rule("AUTONOMOUS RECOVERY AGENT");
   ui.note(`${work.length.toLocaleString("en-IN")} failed payments · ${resuming ? "resuming" : "fresh"} · ${dbPath}`);
-  const s = runAgent({ dbPath, work, customers, mandates, records: byId });
+  const done = ui.progress("running the recovery agent");
+  const s = await runAgent({ dbPath, work, psp });
+  done(`agent cycle complete against the ${psp.name} PSP`);
 
   ui.blank();
   if (s.resumed > 0) ui.step("warn", `resumed ${s.resumed} in-flight intervention(s) from a previous run`);
@@ -416,8 +419,15 @@ function runAgentCommand(): void {
       return [tone(CYCLE_LABEL[k] ?? k), tone(v.toLocaleString("en-IN")), ui.bar(v / s.audit_rows, 12, tone)];
     }), ["l", "r", "l"]);
 
+  // Priced here rather than inside the agent: the agent no longer holds the world,
+  // and a live PSP would not tell it what a mandate is worth.
+  const amounts = new Map(records.map((w) => [w.mandate_id, w.amount]));
+  const db = new Database(dbPath, { readonly: true });
+  const recovered = (db.prepare("SELECT mandate_id FROM audit_log WHERE outcome='recovered'").all() as { mandate_id: string }[])
+    .reduce((a, x) => a + (amounts.get(x.mandate_id) ?? 0), 0);
+  db.close();
   ui.rule("REVENUE RECOVERED");
-  ui.kv([["Recovered this run", good(ui.moneyShort(s.recovered_amount)) + dim("  " + ui.money(s.recovered_amount))]]);
+  ui.kv([["Recovered this run", good(ui.moneyShort(recovered)) + dim("  " + ui.money(recovered))]]);
   void AP;
 }
 
@@ -1078,7 +1088,7 @@ function main(): void {
   if (command === "explain") return runExplainCase();
   if (command === "verify") return runVerify();
   if (command === "features") return buildFeatures();
-  if (command === "agent") return runAgentCommand();
+  if (command === "agent") { void runAgentCommand(); return; }
   if (command === "policy") return runPolicies();
   if (command !== "generate") {
     console.error("usage: node src/cli.ts <generate|features|report|policy|agent|digest|explain <mandate_id>|verify|demo>");
