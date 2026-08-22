@@ -1,14 +1,5 @@
 import { makeRng } from "./rng.ts";
 
-/**
- * Cluster bootstrap: resamples GROUPS with replacement, not rows.
- *
- * Everything in this project is clustered by mandate — attempts on one mandate
- * share a customer, a balance trajectory and a churn state — so a row-level
- * bootstrap would treat correlated rows as independent and report intervals that
- * are too narrow. The policy comparison and the headline metric must agree on
- * this, which is why there is one implementation.
- */
 export function clusterBootstrapCI<T>(
   items: T[],
   groupOf: (item: T) => string,

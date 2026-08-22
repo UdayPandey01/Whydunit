@@ -1,11 +1,3 @@
-/**
- * Human-readable copy for the terminal. PRESENTATION ONLY.
- *
- * Every string here describes behaviour that already exists elsewhere. The action
- * column in particular mirrors `decide()` and `scheduleFor()` in
- * src/agent/agent.ts exactly — if the agent's mapping ever changes, this file is
- * wrong and must follow it, never the other way round.
- */
 import type { Cause } from "./world/types.ts";
 
 export const CAUSE_CODE: Record<Cause, string> = {
@@ -29,11 +21,6 @@ export const CAUSE_MEANING: Record<Cause, string> = {
   C4_CANCELLATION: "Customer has decided to stop paying",
 };
 
-/**
- * What the agent actually does for each cause. C4 is STOP with no follow-on
- * retry and no automatic hand-off — writing "stop then human review" here would
- * describe behaviour the agent does not have.
- */
 export const CAUSE_ACTION: Record<Cause, string> = {
   C1_EXECUTION_WINDOW: "RESCHEDULE",
   C2_NOTIFICATION_FAIL: "NOTIFY → RETRY",
@@ -48,7 +35,6 @@ export const CAUSE_ACTION_DETAIL: Record<Cause, string> = {
   C4_CANCELLATION: "no further retries",
 };
 
-/** Agent action names as they appear in the audit log. */
 export const ACTION_LABEL: Record<string, string> = {
   reschedule: "RESCHEDULE",
   refire_notification_then_reschedule: "NOTIFY → RETRY",

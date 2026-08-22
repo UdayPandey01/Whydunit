@@ -1,0 +1,60 @@
+name: verify
+
+# The reproducibility claim, executed. This runs the whole pipeline from the seed
+# and then diffs every artifact hash and eleven headline metrics against the
+# committed reference/manifest.json. A green badge means the numbers in the README
+# came out of this repo, on a clean machine, today.
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  reproduce:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24.19.0'
+          cache: npm
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - run: npm ci --no-audit --no-fund
+
+      - name: install python deps (pinned)
+        run: |
+          python -m venv .venv
+          .venv/bin/pip install --no-cache-dir -r requirements.txt
+
+      - name: typecheck
+        run: npx tsc --noEmit
+
+      - name: tests
+        run: npm test
+
+      - name: run the full pipeline from the seed
+        run: npm run all
+        env:
+          NO_COLOR: '1'
+
+      - name: verify every number against the committed manifest
+        run: npm run verify
+        env:
+          NO_COLOR: '1'
+
+      - name: upload artifacts on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pipeline-output
+          path: |
+            data/*.json
+            reference/manifest.json
+          retention-days: 7

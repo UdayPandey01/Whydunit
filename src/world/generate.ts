@@ -9,6 +9,7 @@ import {
   SPEND_RATIO_MEAN, SPEND_RATIO_MIN, SPEND_RATIO_SD, START_MS, WINDOW_HIT_RATE,
 } from "../config.ts";
 import { bernoulli, clamp, int, lognormal, makeRng, normal, uniform, weighted } from "../rng.ts";
+import { isRestrictedTime } from "../schedule.ts";
 import type { Rng } from "../rng.ts";
 import { DAY_MS, HOUR_MS, daysInMonth, istMs, istParts, round, toIso } from "../time.ts";
 import { balanceAt } from "./balance.ts";
@@ -159,7 +160,10 @@ export function generateWorldFull(opts: GenerateOptions = {}): World {
       const dispatchMs = ts - leadHours * HOUR_MS;
       const delivered = wasDeliveredByBank(customer.bank, dispatchMs, rng);
 
-      const restricted = hour >= 10 && hour < 13;
+      // Via the shared helper, not a literal: the generator and the counterfactual
+      // replay must agree on what "restricted" means, or C1 in the world and C1 in
+      // the adjudicator would drift apart the moment the config changed.
+      const restricted = isRestrictedTime(ts);
       const { balance, days_since_salary } = balanceAt(customer, ts);
 
       // Every process is asked; we do not short-circuit, because multi_cause

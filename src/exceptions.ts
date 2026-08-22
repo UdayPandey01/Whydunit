@@ -3,11 +3,7 @@ import type { Cause } from "./world/types.ts";
 
 export const AMBIGUITY_MARGIN = 0.15;
 export const MIN_PRIOR_ATTEMPTS = 2;
-// A bank carrying less than this much training data is treated as unsupported
-// even though it was technically seen.
 export const MIN_BANK_TRAIN_ROWS = 40;
-// Chance alone puts the odd feature just past a training min/max, so one stray
-// value is not novelty. Two or more is.
 export const NOVEL_FEATURE_THRESHOLD = 2;
 
 export type ExceptionReason =
