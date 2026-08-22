@@ -325,3 +325,34 @@ was read as waste. It is not: ₹84 still clears a ₹33 retry cost, so those re
 individually profitable — merely lower-yield. Cutting them, which is exactly what the
 EV budget does, destroys more value than it saves. Lower-yield is not unprofitable,
 and the only thing that distinguishes them is the retry cost.
+
+## 12. Portable, not merely deterministic
+
+`verify` passed on the arm64 dev machine and would have failed on the x86 CI
+runner. The pipeline was deterministic on each platform and disagreed between
+them: 17 of 3,116 lines of `predictions.jsonl` differed, with a maximum
+probability delta of **5.55e-17** — one ULP. Zero predicted classes changed, and
+`report.json`, `policy.json` and `evaluation.json` all matched byte for byte,
+because everything downstream either takes an argmax or compares against a
+threshold three orders of magnitude coarser than the noise.
+
+The cause is that float64 `repr` is not portable. numpy and scipy bind different
+BLAS backends per architecture, so a deterministic HistGradientBoosting fit can
+land on different last bits, and hashing that representation makes a
+reproducibility gate architecture-dependent rather than reproducible.
+
+Probabilities are now rounded to 6 dp **at the serialization boundary in
+`eval/evaluate.py`, never in the computation** — roughly eleven orders above the
+observed noise and three below the tightest threshold anything downstream uses
+(`P(C4) ≥ 0.952`, ambiguity margin `0.15`). Rows are not renormalised afterwards
+and nothing consumes them as a normalised distribution. All eleven headline
+metrics are unchanged.
+
+`verify` now checks portability directly rather than inferring it from a hash, so
+a recurrence names the cause instead of reporting an opaque mismatch. Confirmed by
+running the full pipeline under `--platform linux/amd64` and comparing all ten
+artifacts against the manifest built on arm64.
+
+The general rule this establishes: **an artifact that is hashed as a
+reproducibility claim must be canonical, not merely deterministic.** Determinism
+is a property of one machine; portability is the property the claim actually needs.
