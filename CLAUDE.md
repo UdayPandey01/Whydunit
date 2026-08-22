@@ -65,8 +65,8 @@ EVERY phase, before saying the phase is done. It contains, in this order:
 5. **Not built yet** — what is deliberately missing and which phase it lands in
 6. **How to run** — exact commands
 
-Keep it under 200 lines. If DESIGN.md is getting long, the CODE is too complex —
-fix the code, not the doc. Treat its length as a complexity alarm.
+No hard length limit (lifted at Phase 5). Still treat growth as a signal: if
+DESIGN.md is sprawling, look at whether the CODE got complex before adding prose.
 
 ## INCIDENTS.md
 Every real failure gets an entry, written WHEN IT HAPPENS, never reconstructed:

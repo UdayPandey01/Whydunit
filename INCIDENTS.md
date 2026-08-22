@@ -406,3 +406,82 @@ four horizons the money difference straddles zero (90d +0.11pp, 180d −0.24pp,
 significantly better at attribution (+0.141 to +0.201 macro-F1), but on recovered
 revenue it ties. Per the acceptance rule agreed in advance, the rule stays the
 production retry policy.
+
+---
+
+## #11 — 2026-08-22 — The idempotency check was on the wrong side of the effect
+
+**Symptom.** None yet, which is the point. Putting a second `PspClient`
+implementation behind the agent turned a design that was correct for a simulator
+into one that would double-charge a real customer.
+
+**First hypothesis.** The port was a pure refactor. `fire()` already guaranteed
+exactly-once through a keyed ledger insert, so swapping the adjudicator for a PSP
+call looked like changing what sits inside the same safe wrapper.
+
+**The diagnostic that disproved it.** Reading `fire()` with a network call
+substituted for the simulated one. The order was: run the effect, then
+`INSERT OR IGNORE` the result. That is safe only because the effect was a pure
+function of the world — re-running `attemptAt` twice costs nothing and returns the
+same answer. A crash between a real `scheduleDebit` landing and the row committing
+would, on resume, call `scheduleDebit` again. The ledger's uniqueness constraint
+protects the *record*, never the money.
+
+**Root cause.** Exactly-once was being provided by the ledger insert, when what
+actually protected us was the purity of the effect. Those are different guarantees
+and they had been conflated for three phases.
+
+**Fix and what it traded away.** `fire()` now reads the ledger **before** calling
+out and returns the stored result for a settled key, so a completed intervention is
+never re-attempted. `idempotencyKey` was added to every `PspClient` method and is
+passed through to the PSP. One window is left and cannot be closed from this side:
+a crash between the call landing and the row committing still replays the call. The
+simulator is pure so it does not matter there; a real PSP must dedupe on the key,
+which is why the key is on the interface rather than hidden inside the adapter.
+The trade is that our crash-safety claim is now conditional on the PSP honouring
+idempotency, and that condition is written down instead of assumed.
+
+**What it changed about the design.** The agent became async, and the transaction
+ordering had to be re-read rather than re-run — the crash test passes at 30 kill
+points, but it exercises a pure PSP, so it can only prove our half of the contract.
+The other half belongs to whoever implements `PspClient`, and the interface doc now
+says so in the place someone writing a new adapter will actually read.
+
+---
+
+## #12 — 2026-08-22 — The simulated PSP dispatched notices in the wrong decade
+
+**Symptom.** Caught by reading, not by a failing test: all 57 tests passed with the
+bug present.
+
+**First hypothesis.** None — it was spotted while checking the new
+`sendPreDebitNotification` against the interface, before it had a chance to
+misbehave.
+
+**The diagnostic.** `SimulatedPsp.sendPreDebitNotification` set the dispatch time
+to `Date.now()`. The simulated world runs in 2026 calendar time seeded from
+`START_MS`; the wall clock, on the day this was written, sits months past the
+horizon. A notice "dispatched" at wall-clock now, for a debit scheduled at
+simulated 2026-03-01, has a negative lead time, so the 24-hour NPCI rule would
+reject every re-notified retry forever. The C2 recovery path would have quietly
+gone to zero.
+
+**Root cause.** Two clocks in one process, and no type distinguishing them. The
+world's epoch-ms and the wall clock's epoch-ms have the same type and neither one
+looks wrong at a call site.
+
+**Fix and what it traded away.** The PSP no longer timestamps the notice when it is
+requested. It records that a notice is *pending* for that mandate, and resolves it
+inside `scheduleDebit` against the debit it precedes — dispatch at `at - 26h`,
+delivery drawn from the bank's reliability with the idempotency key as seed. That
+is also a more faithful model: a merchant sends a notice in order to make a
+specific debit legal, not at an arbitrary moment. Nothing was traded; the previous
+version was simply wrong.
+
+**What it changed about the design.** Simulated time and wall-clock time may not
+mix in the same module. `Date.now()` now appears in exactly two places in `src/`:
+the progress timer in `render.ts`, which is genuinely about elapsed real seconds,
+and nowhere in the world or the agent. The tests could not have caught this — the
+fixture's assertions are about crash-safety and constraints, not about C2 recovery
+rate — which is the more useful lesson: a green suite is evidence about what it
+tests, and this was outside all of it.

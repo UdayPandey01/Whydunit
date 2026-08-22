@@ -22,6 +22,13 @@ without double-firing. Claude writes prose about the results and touches nothing
 | `src/bootstrap.ts` | Cluster bootstrap by mandate. One implementation, so every CI agrees. |
 | `src/schedule.ts` | NPCI-window avoidance, salary-date targeting, billing-cycle key. |
 | `src/decision.ts` | Cost-sensitive stop rule. Shared by the agent and the offline policy. |
+| `src/psp/types.ts` | `PspClient` — the one port the agent talks to. |
+| `src/psp/simulated.ts` | The seeded world behind that port. Default; no credentials. |
+| `src/psp/razorpay.ts` | Razorpay test-mode adapter: auth, retry, payment→Observation. |
+| `src/psp/razorpay-codes.ts` | Documented code map plus the `UNMAPPED` gap list. |
+| `src/psp/webhook.ts` | Signature verification and event mapping. No framework. |
+| `src/whydunit.ts` | Public API: `attribute` / `plan` / `execute`. |
+| `src/index.ts` | The exported surface. Everything else is internal. |
 | `src/world/{window,notification,balance,churn}.ts` | The four processes. Each answers only "would I block this?" |
 | `src/world/generate.ts` | Draws the population, steps the horizon, records the emergent cause. |
 | `src/world/replay.ts` | Counterfactual adjudication: what the four would say at another time. |
@@ -188,7 +195,47 @@ different horizon both exit 1.
 `demo` and `explain` are views — they read finished artifacts and run no pipeline
 stage. Python eval output is untouched: it is the methodology report.
 
-## 8. How to run
+## 8. The integration seam (Phase 5)
+
+**One port.** `PspClient` has four methods; the agent knows nothing else about the
+outside world. `SimulatedPsp` wraps the seeded world, `RazorpayPsp` wraps the real
+test-mode API. `tests/seam.test.ts` runs the same agent cycle against the simulator
+and against a scripted PSP sharing no code with it, asserting the audit trails match
+row for row — and runs it against a PSP that accepts everything, asserting the
+intervention budget still binds.
+
+**Notification state moved into the PSP**, which is where it lives in reality: the
+agent asks for a notice and never learns whether the bank delivered it. The
+simulator resolves a requested notice against the debit it precedes rather than
+wall-clock time, because the world runs in simulated 2026 time.
+
+**The agent is now async**, because a real PSP call is. The crash-safety ordering is
+unchanged — TX1 commits intent and the budget, the effect happens, TX2 commits the
+outcome — but `fire()` now consults the ledger **before** the effect rather than
+after. That reordering matters: re-running a pure simulated adjudication was
+harmless, whereas a second real charge is not.
+
+**One window remains and is inherent to talking to another system.** A crash between
+the PSP call landing and the ledger row committing leaves the effect done but
+unrecorded, and the replay calls again with the same key. The simulator is pure so
+this is harmless; a real PSP must dedupe on the key, which is why `idempotencyKey` is
+on the interface rather than an implementation detail.
+
+**A real debit returns `pending`.** Razorpay accepts the instruction and the outcome
+arrives by webhook, so the agent cannot learn the result within the cycle. The
+interface models this rather than pretending outcomes are synchronous.
+
+**Public API.** `attribute` / `plan` / `execute`, each standalone. The default scorer
+is the expert rule, capped at 0.90 confidence so it can never reach the C4 stop
+threshold on its own — a rule cannot express invariance, so it must never be the
+thing that abandons a mandate. Model probabilities enable cost-sensitive stopping.
+
+**What is not verified.** The Razorpay adapter has never run against live
+credentials; none were available. Auth, retry, signature verification and event
+mapping are unit-tested against fixtures, not against a live key. Only C3 is
+inducible in test mode — README has the full gap table.
+
+## 9. How to run
 
 ```bash
 npm install
