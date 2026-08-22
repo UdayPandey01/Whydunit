@@ -20,7 +20,9 @@
     "report": "node src/cli.ts report",
     "digest": "node src/cli.ts digest",
     "explain": "node src/cli.ts explain",
-    "verify": "node src/cli.ts verify"
+    "verify": "node src/cli.ts verify",
+    "snapshot": "node scripts/snapshot.mjs",
+    "web": "npm --prefix web run dev"
   },
   "devDependencies": {
     "@types/better-sqlite3": "^9.6.0",
