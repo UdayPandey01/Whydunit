@@ -6,6 +6,7 @@
  */
 import { readFileSync, writeFileSync } from "node:fs";
 import { createHash } from "node:crypto";
+import Database from "better-sqlite3";
 
 const read = (p) => JSON.parse(readFileSync(p, "utf8"));
 const lines = (p) => readFileSync(p, "utf8").trim().split("\n").map((l) => JSON.parse(l));
@@ -22,6 +23,30 @@ const obs = lines("data/observations.jsonl").filter((o) => o.mandate_id === HERO
 const preds = new Map(lines("data/predictions.jsonl").map((p) => [p.attempt_id, p]));
 const failures = obs.filter((o) => !o.success);
 const subject = failures[failures.length - 1];
+
+// The agent's own audit rows, replayed on the landing page. Reading them here
+// rather than transcribing them is the point: the on-screen story cannot drift
+// from what the agent actually did.
+function trail(mandate) {
+  const db = new Database("data/agent.db", { readonly: true });
+  const rows = db.prepare(
+    `SELECT cycle, attempt_no, cause, confidence, action, decided_at, scheduled_at,
+            checks_passed, checks_skipped, outcome
+     FROM audit_log WHERE mandate_id = ? ORDER BY decided_at, attempt_no`,
+  ).all(mandate);
+  db.close();
+  return rows.map((r) => ({
+    cycle: r.cycle,
+    n: r.attempt_no,
+    cause: r.cause,
+    confidence: r.confidence,
+    action: r.action,
+    scheduled_at: r.scheduled_at,
+    checks: JSON.parse(r.checks_passed).length,
+    skipped: JSON.parse(r.checks_skipped).length,
+    outcome: r.outcome,
+  }));
+}
 
 const snapshot = {
   provenance: {
@@ -52,6 +77,14 @@ const snapshot = {
   })),
   deltas: policy.paired_deltas,
   sweep: policy.sweep.map((s) => ({ t: s.threshold, rate: s.rate, retries: s.retries, net: s.net })),
+  // A full year on one mandate: recovers, escalates when unsure, keeps trying,
+  // then stops. The arc is the product.
+  replay: {
+    mandate: "mdt_00060",
+    bank: "KOTAK",
+    amount: 999,
+    trail: trail("mdt_00060"),
+  },
   hero: {
     mandate: HERO,
     bank: subject.bank,
@@ -60,6 +93,7 @@ const snapshot = {
     error_code: subject.error_code,
     receipt: subject.notification.receipt,
     proba: preds.get(subject.attempt_id).proba,
+    trail: trail(HERO),
     attempts: obs.map((o) => ({
       at: o.timestamp,
       hour: Number(o.timestamp.slice(11, 13)) + Number(o.timestamp.slice(14, 16)) / 60,

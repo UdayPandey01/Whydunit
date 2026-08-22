@@ -5,6 +5,7 @@ import { Dial } from "@/components/Dial";
 import { VideoBeat } from "@/components/VideoBeat";
 import { Eliminate } from "@/components/Eliminate";
 import { Bars } from "@/components/Bars";
+import { Replay } from "@/components/Replay";
 import { inr, lakh, pct, pp } from "@/lib/format";
 
 const HERO_FAIL_HOUR = 11 + 7 / 60;   // real: 2026-05-22T11:07 IST
@@ -156,11 +157,39 @@ export default function Home() {
         </div>
       </section>
 
-      {/* ── 04 scale ── */}
+      {/* ── 04 the replay — WhyDunit doing the thing ── */}
+      <section>
+        <div className="wrap">
+          <div className="narrow" style={{ marginBottom: 38 }}>
+            <Reveal><p className="eyebrow">04 — One customer, one year</p></Reveal>
+            <Reveal delay={70}><h2 style={{ margin: "14px 0 14px" }}>
+              Watch it recover, hesitate, and then give up.
+            </h2></Reveal>
+            <Reveal delay={140}><p className="lede">
+              These are the agent&rsquo;s own audit rows for a single mandate, replayed as you scroll.
+              Nothing here is staged — every line is read from the log the agent wrote while running.
+            </p></Reveal>
+          </div>
+          <Reveal>
+            <Replay rows={snap.replay.trail} amount={snap.replay.amount}
+              mandate={snap.replay.mandate} bank={snap.replay.bank} />
+          </Reveal>
+          <Reveal delay={100}>
+            <p className="lede" style={{ marginTop: 30 }}>
+              Four cycles recovered. One held back because confidence fell to 0.54. Three retries in
+              August that went nowhere. Then, in September, <span style={{ color: "var(--ink)" }}>P(cancelled)
+              crossed 0.95 and it stopped</span> — the one decision a fixed-interval retry can never make,
+              because a timer has no opinion about whether the customer is still there.
+            </p>
+          </Reveal>
+        </div>
+      </section>
+
+      {/* ── 05 scale ── */}
       <section>
         <div className="wrap">
           <div className="narrow" style={{ marginBottom: 36 }}>
-            <Reveal><p className="eyebrow">04 — At scale</p></Reveal>
+            <Reveal><p className="eyebrow">05 — At scale</p></Reveal>
             <Reveal delay={70}><h2 style={{ margin: "14px 0 14px" }}>
               {t.failures.toLocaleString("en-IN")} failures, one seeded run.
             </h2></Reveal>
@@ -189,7 +218,7 @@ export default function Home() {
       {/* ── 05 honest ── */}
       <section>
         <div className="wrap narrow">
-          <Reveal><p className="eyebrow">05 — What it cannot do</p></Reveal>
+          <Reveal><p className="eyebrow">06 — What it cannot do</p></Reveal>
           <Reveal delay={70}><h2 style={{ margin: "14px 0 30px" }}>The tie is the honest headline.</h2></Reveal>
           <Reveal delay={140}>
             <dl style={{ margin: 0, borderTop: "1px solid var(--line)" }}>

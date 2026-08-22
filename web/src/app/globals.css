@@ -173,3 +173,42 @@ td{padding:12px 14px;border-bottom:1px solid var(--line)}
 tr:last-child td{border-bottom:none}
 td.n{text-align:right;font-variant-numeric:tabular-nums;font-feature-settings:"tnum" 1}
 .scroll-x{overflow-x:auto;border:1px solid var(--line);border-radius:11px;background:var(--surface)}
+
+/* ── replay ledger ── */
+.replay{border:1px solid var(--line);border-radius:12px;background:var(--surface);overflow:hidden;
+  box-shadow:0 50px 110px -70px #000}
+.replay-hd{display:flex;justify-content:space-between;align-items:center;gap:14px;
+  padding:14px 20px;border-bottom:1px solid var(--line);background:var(--raised)}
+.replay-rows{list-style:none;margin:0;padding:0}
+.replay-row{
+  display:grid;grid-template-columns:44px 52px minmax(0,1fr) 150px 132px;gap:14px;align-items:center;
+  padding:13px 20px;border-bottom:1px solid var(--line);font-size:13.5px;
+  opacity:.12;transform:translate3d(0,6px,0);
+  transition:opacity .5s var(--ease),transform .5s var(--ease),background .5s var(--ease);
+}
+.replay-row[data-on="1"]{opacity:1;transform:none}
+.replay-row:last-child{border-bottom:none}
+.replay-row .mo{font-size:10px;letter-spacing:.1em;color:var(--ink-3)}
+.replay-row .tm{font-size:11px;color:var(--ink-3)}
+.replay-row .cz b{color:var(--ink-2);font-weight:400;font-size:10.5px;margin-right:7px}
+.replay-row .ac{font-size:12.5px}
+.replay-row .ot{text-align:right;font-size:12.5px}
+.replay-row[data-kind="won"] .ot{color:var(--success)}
+.replay-row[data-kind="lost"] .ot{color:var(--ink-3)}
+.replay-row[data-kind="human"] .ot{color:var(--gold)}
+.replay-row[data-kind="stop"]{background:rgba(217,84,77,.05)}
+.replay-row[data-kind="stop"] .ot{color:var(--danger)}
+.replay-row[data-kind="stop"][data-on="1"]{box-shadow:inset 2px 0 0 var(--danger)}
+.replay-ft{display:flex;justify-content:space-between;align-items:flex-end;gap:24px;flex-wrap:wrap;
+  padding:20px;border-top:1px solid var(--line);background:var(--raised)}
+.replay-ft .verdict{max-width:44ch;font-size:14px;color:var(--ink-3);text-align:right;
+  opacity:.5;transition:opacity .6s var(--ease),color .6s var(--ease)}
+.replay-ft .verdict.on{opacity:1;color:var(--ink-2)}
+.replay-ft .verdict b{color:var(--danger);font-weight:500}
+@media(max-width:760px){
+  .replay-row{grid-template-columns:40px 1fr;gap:4px 12px;padding:14px 16px}
+  .replay-row .tm{display:none}
+  .replay-row .ac{grid-column:2;font-size:12px}
+  .replay-row .ot{grid-column:2;text-align:left}
+  .replay-ft .verdict{text-align:left}
+}
