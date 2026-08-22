@@ -1113,6 +1113,26 @@ function runVerify(): void {
   ui.line(`  ${sameWorld ? ui.OK : ui.FAIL} ${sameWorld ? "world matches the committed data byte for byte" : bad("regenerated world differs from data/world.jsonl")}`);
   void observations;
 
+  // Step 1b: artifacts must be PORTABLE, not merely deterministic. Raw float64
+  // repr differs in the last bit between BLAS backends, so an x86 CI runner
+  // produced a different predictions.jsonl from an arm64 dev machine with every
+  // class and every metric identical. Catch the cause here rather than reporting
+  // an opaque hash mismatch. See DESIGN.md §12.
+  const unrounded: string[] = [];
+  for (const line of readFileSync("data/predictions.jsonl", "utf8").trim().split("\n")) {
+    const row = JSON.parse(line) as { attempt_id: string; proba: Record<string, number> };
+    for (const [cause, p] of Object.entries(row.proba)) {
+      if (Number(p.toFixed(6)) !== p) unrounded.push(`${row.attempt_id}.${cause}=${p}`);
+    }
+  }
+  if (unrounded.length > 0) {
+    failed++;
+    ui.line(`  ${ui.FAIL} ${bad(`${unrounded.length} probabilities carry more than 6 dp — not portable across platforms`)}`);
+    ui.note(`first: ${unrounded[0]}`);
+  } else {
+    ui.line(`  ${ui.OK} probabilities are rounded at the serialization boundary (portable)`);
+  }
+
   // Step 2: every committed artifact hash.
   const rows: string[][] = [];
   for (const f of VERIFIED) {

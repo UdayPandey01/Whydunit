@@ -278,7 +278,15 @@ def main():
                 "actual": r["label"],
                 "predicted": oof_pred[i],
                 "rule_predicted": rule_all[i],
-                "proba": {c: float(oof_proba[i, j]) for j, c in enumerate(CLASSES)},
+                # Rounded at the serialization boundary, NOT in the computation.
+                # float64 repr is not portable: the same deterministic fit differs
+                # in the last bit between BLAS backends (arm64 vs the x86 CI
+                # runner), which made an artifact hash fail while every class,
+                # every decision and every downstream artifact were identical.
+                # 6 dp sits ~11 orders above that noise and ~3 below the tightest
+                # threshold anything downstream uses. Rows need not sum to exactly
+                # 1 afterwards; nothing consumes them as a normalised distribution.
+                "proba": {c: round(float(oof_proba[i, j]), 6) for j, c in enumerate(CLASSES)},
             }) + "\n")
 
     (DATA / "evaluation.json").write_text(json.dumps(report, indent=2) + "\n")
