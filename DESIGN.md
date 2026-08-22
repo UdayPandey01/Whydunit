@@ -21,7 +21,7 @@ without double-firing. Claude writes prose about the results and touches nothing
 | `src/rng.ts` | mulberry32 seeded PRNG, draw helpers, FNV-1a `hash32`. |
 | `src/bootstrap.ts` | Cluster bootstrap by mandate. One implementation, so every CI agrees. |
 | `src/schedule.ts` | NPCI-window avoidance, salary-date targeting, billing-cycle key. |
-| `src/decision.ts` | Cost-sensitive stop rule. Shared by the agent and the offline policy. |
+| `src/decision.ts` | Cost-sensitive stop rule, amount-aware threshold, EV retry budget. Shared by the agent and the offline policy. |
 | `src/psp/types.ts` | `PspClient` — the one port the agent talks to. |
 | `src/psp/simulated.ts` | The seeded world behind that port. Default; no credentials. |
 | `src/psp/razorpay.ts` | Razorpay test-mode adapter: auth, retry, payment→Observation. |
@@ -274,3 +274,54 @@ would have disagreed about C1 the moment `RESTRICTED_START_HOUR` changed. Fixed;
 `world.jsonl` is byte-identical after the change. No secrets, no `.env`, no
 `Math.random` anywhere in `src/`, and no `Date.now()` in the world, agent or PSP —
 simulated time and wall-clock time do not mix.
+
+## 11. Expected-value recovery: what was tried and what was kept
+
+The Phase 4A stop rule prices one trade — a wrongful stop forfeits a mandate, a
+wrongful retry costs a retry — as a fleet-wide **ratio**, giving every mandate the
+same threshold of 0.952. That is amount-blind: a ₹149 mandate and a ₹4,999 mandate
+are charged the same reluctance to give up. Two amount-aware variants were built
+and measured against it.
+
+**EV threshold** (`stopThresholdFor`). The same inequality priced in absolute
+rupees: stop iff `P(C4) > V / (V + R)`, where `V` is the mandate and `R` is a fixed
+per-retry cost (`COST_RETRY_RUPEES`, default ₹33). Gives up sooner on small mandates
+(₹149 → 0.819) and fights harder for large ones (₹4,999 → 0.993).
+
+**EV budget** (`retryBudgetFor`). A different question: not *whether* to stop but
+*how many* retries a mandate is worth. Spend retry k only while
+`P(success) × V > R`, so a mandate worth n breakevens buys n retries. At R=₹33 and
+P=0.33 the breakeven is ₹100: ₹149 buys one retry, ₹499 buys three.
+
+### Measured, 270-day run, paired bootstrap against the flat policy
+
+| Variant | Δ ₹ recovered | Δ retries / failure | Break-even retry cost |
+|---|---:|---:|---:|
+| EV threshold | −0.07pp `[−0.16, −0.02]` | −0.02 `[−0.04, −0.01]` | ₹20 |
+| EV budget | −2.31pp `[−3.12, −1.71]` | −0.31 `[−0.36, −0.26]` | ₹49 |
+| EV threshold on the *rule* | +0.00pp exactly | +0.00 exactly | — |
+
+**Kept: the flat threshold, as the default.** Both variants trade money for retries,
+and the trade only pays above a retry cost the merchant has to supply. The EV
+threshold clears its ₹20 break-even at the assumed ₹33, but nets about ₹965 on
+₹20.87L — statistically detectable, economically noise, and not worth a second code
+path under the simplicity rules. The EV budget does **not** clear its ₹49 break-even
+at ₹33; it becomes the right policy only if a retry genuinely costs more than that.
+Both ship as measured, opt-in variants with the break-even printed on every policy
+run, because the number that decides between them belongs to the merchant.
+
+### Two findings worth more than the feature
+
+**Amount-weighting is inert against a predictor with degenerate probabilities.** The
+expert rule answers 0 or 1, so every threshold in (0,1) yields the same decision and
+the delta is *exactly* zero — not small, zero. Amount-weighting only bites on
+calibrated beliefs in the middle of the range, which makes it a reason to care about
+calibration rather than a policy trick. `tests/decision.test.ts` pins this.
+
+**The diagnosis that motivated this work was wrong, and the measurement corrected
+it.** The ₹149–299 band consumes 49% of all retries while holding 17% of the money
+at risk, returning ₹84 per retry against ₹1,174 in the ₹1,500+ band. That 14× spread
+was read as waste. It is not: ₹84 still clears a ₹33 retry cost, so those retries are
+individually profitable — merely lower-yield. Cutting them, which is exactly what the
+EV budget does, destroys more value than it saves. Lower-yield is not unprofitable,
+and the only thing that distinguishes them is the retry cost.
