@@ -5,7 +5,7 @@ import Database from "better-sqlite3";
 import { indicators } from "./exceptions.ts";
 import { runAgent } from "./agent/agent.ts";
 import type { WorkItem } from "./agent/agent.ts";
-import { COST_WRONGFUL_RETRY, DEFAULT_COST_RATIO, HORIZON_DAYS, SEED } from "./config.ts";
+import { COST_RETRY_RUPEES, COST_WRONGFUL_RETRY, DEFAULT_COST_RATIO, HORIZON_DAYS, SEED } from "./config.ts";
 import { stopThreshold } from "./decision.ts";
 import { explainAttributions, explainDigest, explainExceptions, claudeExplainer, hasCredentials } from "./explain.ts";
 import type { Attribution } from "./explain.ts";
@@ -251,6 +251,36 @@ function runPolicies(): void {
   ui.note(`net = ₹ recovered − retries × ${ui.money(retryCost)} per retry`);
   ui.note(`sweep peaks at ${best.threshold.toFixed(2)}; cost model selects ${threshold.toFixed(3)}`);
 
+  // The amount-aware rule has one free parameter — what a retry costs in rupees —
+  // so it gets the same visible sweep the flat threshold does.
+  const evSweep: { retryCost: number; rate: number; amount: number; retries: number }[] = [];
+  for (const rc of [5, 10, 20, 33, 50, 80, 120, 200]) {
+    const sched = schedulesFor(probabilities, rulePredictions, threshold, rc).model_ev!;
+    const out = runPolicy(failures, customers, mandates, sched);
+    evSweep.push({
+      retryCost: rc,
+      rate: rupeeRate(out),
+      amount: out.filter((r) => r.recovered).reduce((a, r) => a + r.amount, 0),
+      retries: out.reduce((a, r) => a + r.retries_spent, 0),
+    });
+  }
+  ui.rule("RETRY-COST SWEEP  ·  amount-weighted stopping");
+  ui.table(["Cost / retry", "Stops below", "₹ recovered", "Retries", "₹ per retry"],
+    evSweep.map((e) => {
+      const chosen = e.retryCost === COST_RETRY_RUPEES;
+      const tone = chosen ? key : dim;
+      // The mandate value at which this retry cost puts the threshold at 0.95.
+      const breakeven = Math.round((0.95 * e.retryCost) / 0.05);
+      return [
+        tone(ui.money(e.retryCost)),
+        tone("₹" + breakeven.toLocaleString("en-IN")),
+        tone(ui.moneyShort(e.amount)),
+        tone(e.retries.toLocaleString("en-IN")),
+        tone(ui.money(e.amount / e.retries)) + (chosen ? key("  ← in use") : ""),
+      ];
+    }), ["r", "r", "r", "r", "l"]);
+  ui.note("stops below = mandate value where the threshold reaches 0.95");
+
   const results: Record<string, { rate: number; ci: [number, number]; retries: number; retries_ci: [number, number]; recovered: number; spent: number }> = {};
   const outcomes: Record<string, PolicyOutcome[]> = {};
   const tableRows: string[][] = [];
@@ -314,6 +344,53 @@ function runPolicies(): void {
       ];
     }), ["l", "r", "l", "l"]);
 
+  // Isolate the threshold change: same predictor, same actions, flat vs
+  // amount-weighted. Applied to the rule as well, because amount-weighting is a
+  // policy change that any predictor gets.
+  const evRows: string[][] = [];
+  for (const [ev, flat] of [
+    ["model_ev", "model_policy"],
+    ["model_ev_budget", "model_policy"],
+    ["rule_ev", "rule_policy"],
+  ] as const) {
+    const d = pairedDeltaCI(outcomes[ev]!, outcomes[flat]!, rupeeRate);
+    const rd = pairedDeltaCI(outcomes[ev]!, outcomes[flat]!, retriesPer);
+    const v = ui.verdict(d.delta, d.ci[0], d.ci[1]);
+    const rv = ui.verdict(rd.delta, rd.ci[0], rd.ci[1], true);
+    evRows.push([
+      dim(`${POLICY_LABEL[ev] ?? ev}`),
+      v.tone(`${d.delta >= 0 ? "+" : ""}${(100 * d.delta).toFixed(2)}pp`),
+      dim(`[${(100 * d.ci[0]).toFixed(2)}, ${(100 * d.ci[1]).toFixed(2)}]`),
+      rv.tone(`${rd.delta >= 0 ? "+" : ""}${rd.delta.toFixed(2)}`),
+      dim(`[${rd.ci[0].toFixed(2)}, ${rd.ci[1].toFixed(2)}]`),
+    ]);
+  }
+  ui.rule("AMOUNT-WEIGHTED − FLAT  ·  same predictor, same actions");
+  ui.table(["Variant", "Δ ₹", "95% CI", "Δ retries", "95% CI"], evRows, ["l", "r", "l", "r", "l"]);
+  ui.note("baseline is the flat-threshold policy of the same predictor");
+
+  // Both EV variants trade money for retries. Whether that trade is worth taking
+  // depends on one number the merchant owns: what a retry actually costs. Solve
+  // for it rather than assert an answer.
+  ui.blank();
+  for (const ev of ["model_ev", "model_ev_budget"] as const) {
+    const dMoney = rupeeRate(outcomes[ev]!) - rupeeRate(outcomes.model_policy!);
+    const dRetries =
+      outcomes[ev]!.reduce((a, r) => a + r.retries_spent, 0) -
+      outcomes.model_policy!.reduce((a, r) => a + r.retries_spent, 0);
+    const rupeesLost = -dMoney * totalAmount;
+    const retriesSaved = -dRetries;
+    if (retriesSaved <= 0) continue;
+    const breakeven = rupeesLost / retriesSaved;
+    const worth = COST_RETRY_RUPEES > breakeven;
+    ui.line(
+      `  ${POLICY_LABEL[ev]}: gives up ${ui.money(rupeesLost)} to save ` +
+      `${retriesSaved.toLocaleString("en-IN")} retries → ` +
+      (worth ? good : bad)(`worth it only above ${ui.money(breakeven)}/retry`),
+    );
+  }
+  ui.note(`assumed retry cost is ${ui.money(COST_RETRY_RUPEES)} — set WHYDUNIT_RETRY_COST to your own`);
+
   // Where does the recovery actually come from? Split by TRUE cause.
   const causeOf = new Map(failures.map((f) => [f.attempt_id, f.cause!]));
   // churned_at is a MANDATE property, so it is also set on attempts that failed
@@ -342,7 +419,7 @@ function runPolicies(): void {
   ui.note("naive retry recovers 0% of C1: T+24/72/168h all keep the same hour");
   ui.note(`${wasted} retries burned on silent churn — unrecoverable, undetected`);
 
-  writeFileSync("data/policy.json", JSON.stringify({ n_failures: failures.length, total_amount: totalAmount, cost_ratio: ratio, stop_threshold: threshold, sweep, results, paired_deltas: deltas, paired_retry_deltas: retryDeltas }, null, 2) + "\n");
+  writeFileSync("data/policy.json", JSON.stringify({ n_failures: failures.length, total_amount: totalAmount, cost_ratio: ratio, stop_threshold: threshold, sweep, ev_sweep: evSweep, retry_cost: COST_RETRY_RUPEES, results, paired_deltas: deltas, paired_retry_deltas: retryDeltas }, null, 2) + "\n");
   console.log(`${PP} wrote data/policy.json`);
 }
 

@@ -75,7 +75,10 @@ export const POLICY_LABEL: Record<string, string> = {
   do_nothing: "Do nothing",
   naive_retry: "Naive retry (T+24/72/168h)",
   window_aware_retry: "Window-aware retry",
-  rule_policy: "Rule-based",
-  model_policy: "WhyDunit",
+  rule_policy: "Rule-based (flat)",
+  rule_ev: "Rule-based (amount-weighted)",
+  model_policy: "WhyDunit (flat)",
+  model_ev: "WhyDunit (EV threshold)",
+  model_ev_budget: "WhyDunit (EV budget)",
   oracle_policy: "Oracle (ground truth)",
 };

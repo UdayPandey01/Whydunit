@@ -19,6 +19,20 @@ export const COST_WRONGFUL_STOP = 1.0; // one full mandate value
 export const COST_WRONGFUL_RETRY = 0.05; // one retry, as a fraction of that value
 export const DEFAULT_COST_RATIO = COST_WRONGFUL_STOP / COST_WRONGFUL_RETRY;
 
+// The same trade priced in ABSOLUTE rupees rather than as a ratio, which is what
+// makes it amount-aware. A wrongful stop forfeits the mandate, so its cost scales
+// with the mandate; a retry is one bank API call and one customer-facing debit
+// attempt, so its cost does NOT. Expressing both in rupees is the whole fix: a
+// flat ratio charges the same threshold to a ₹149 mandate and a ₹4,999 one.
+// Default is 0.05 x the mean mandate value in the seeded world, so the flat and
+// amount-aware rules agree at an average-sized mandate and diverge either side.
+export const COST_RETRY_RUPEES = Number(process.env.WHYDUNIT_RETRY_COST ?? 33);
+
+// Rough marginal probability that any one retry lands, measured from the seeded
+// run (recovered interventions / interventions spent). Used only to gate how MANY
+// retries a mandate is worth, never to attribute a cause.
+export const P_RETRY_SUCCEEDS = 0.33;
+
 // ---------- C1: NPCI execution window ----------
 export const RESTRICTED_START_HOUR = 10;
 export const RESTRICTED_END_HOUR = 13; 
