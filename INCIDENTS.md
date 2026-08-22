@@ -485,3 +485,48 @@ and nowhere in the world or the agent. The tests could not have caught this — 
 fixture's assertions are about crash-safety and constraints, not about C2 recovery
 rate — which is the more useful lesson: a green suite is evidence about what it
 tests, and this was outside all of it.
+
+---
+
+## #13 — 2026-08-22 — Docker halved the recovery rate, and Docker was innocent
+
+**Symptom.** The first `docker compose up` on a clean clone produced attribution
+numbers identical to the host — 605 / 333 / 1,418 / 400 / 360, exact — but the
+agent recovered **543** mandates where the host had recovered **1,796**. Same seed,
+same commit, same artifacts up to the agent.
+
+**First hypothesis.** A container/host environment difference. Timezone was the
+obvious suspect: the whole world runs on IST wall-clock arithmetic, the container
+runs UTC, and a stray `Date` call reading the host zone would shift every attempt.
+
+**The diagnostic that disproved it.** Running the agent on the host reproduced
+**543**. The host now disagreed with its own earlier output, so nothing about the
+container was responsible. The earlier 1,796 predated the Phase 5 PSP refactor,
+and the pipeline had not been re-run end to end since. Docker had not caused the
+regression; it had been the first thing to execute the current code from scratch.
+
+**Root cause.** `SimulatedPsp` seeded its notification state with
+`this.notify.set(rec.mandate_id, …)` while looping over every world record. One
+entry per mandate, so the **last** attempt's pre-debit notice overwrote all
+earlier ones. A retry of a January debit was then judged against a notice
+dispatched the following September: lead time negative, the 24-hour NPCI rule
+violated, C2 blocks, the retry fails. Roughly two thirds of recoveries evaporated.
+
+The refactor that introduced it looked innocuous — the old agent held a per-attempt
+notify object and the new PSP holds it per mandate, which reads like the same fact
+stored one level up. It is not: a mandate has a *timeline* of notices.
+
+**Fix and what it traded away.** The PSP keeps a sorted list of notices per mandate
+and `scheduleDebit` selects the most recent one dispatched at or before the debit —
+which is what NPCI would actually check. A re-notification appends to that list
+rather than replacing it. Nothing was traded; the previous behaviour was wrong.
+
+**What it changed about the design.** The seam test compares the agent's behaviour
+across two PSP implementations, and both were equally wrong, so it stayed green
+throughout — a comparison test cannot catch a fault in the thing being compared
+against. Two tests were added that do not compare: one asserts a retry is governed
+by a notice preceding it, and one asserts end-to-end recovery clears 40% of
+mandates. Reintroducing the bug turns five tests red, so they are known to bite.
+The wider lesson is the one that made this findable at all: **a clean clone in a
+clean container was the first execution of the real current state**, and it should
+have run at the end of every phase, not only at the end.

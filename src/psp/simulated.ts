@@ -26,7 +26,11 @@ export class SimulatedPsp implements PspClient {
   private readonly mandates: Map<string, Mandate>;
   private readonly records: WorldRecord[];
   private readonly observations: ObservedAttempt[];
-  private readonly notify = new Map<string, Notify>();
+  // A TIMELINE per mandate, not a single value. Each attempt had its own pre-debit
+  // notice, and the one that governs a retry is the most recent notice dispatched
+  // at or before it. Collapsing this to one entry per mandate let the LAST
+  // attempt's notice govern every earlier retry — see INCIDENTS #13.
+  private readonly notices = new Map<string, Notify[]>();
   private readonly pendingNotice = new Map<string, string>();
   private readonly cancelled = new Set<string>();
 
@@ -37,11 +41,14 @@ export class SimulatedPsp implements PspClient {
     this.records = world.records;
     this.observations = observe(world.records);
     for (const rec of world.records) {
-      this.notify.set(rec.mandate_id, {
+      const list = this.notices.get(rec.mandate_id) ?? [];
+      list.push({
         dispatchMs: Date.parse(rec.notification_dispatched_at),
         delivered: rec.world.notification_delivered_by_bank,
       });
+      this.notices.set(rec.mandate_id, list);
     }
+    for (const list of this.notices.values()) list.sort((a, b) => a.dispatchMs - b.dispatchMs);
   }
 
   /** Exposed for the offline harness, which needs ground truth. Not on the interface. */
@@ -67,13 +74,14 @@ export class SimulatedPsp implements PspClient {
     if (pending !== undefined) {
       const dispatchMs = at.getTime() - (NOTIFY_MIN_LEAD_HOURS + 2) * HOUR_MS;
       const bank = this.records.find((r) => r.mandate_id === mandateId)?.bank ?? "HDFC";
-      this.notify.set(mandateId, {
-        dispatchMs,
-        delivered: wasDeliveredByBank(bank, dispatchMs, makeRng(hash32(pending))),
-      });
+      const fresh = { dispatchMs, delivered: wasDeliveredByBank(bank, dispatchMs, makeRng(hash32(pending))) };
+      const list = this.notices.get(mandateId) ?? [];
+      list.push(fresh);
+      list.sort((a, b) => a.dispatchMs - b.dispatchMs);
+      this.notices.set(mandateId, list);
       this.pendingNotice.delete(mandateId);
     }
-    const notify = this.notify.get(mandateId) ?? { dispatchMs: at.getTime(), delivered: false };
+    const notify = this.noticeGoverning(mandateId, at.getTime());
     const outcome = attemptAt(customer, mandate, at.getTime(), notify);
     if (outcome.success) return OK(idempotencyKey);
     return FAILED(null, outcome.blockers.join("+"));
@@ -90,8 +98,14 @@ export class SimulatedPsp implements PspClient {
     return OK(idempotencyKey);
   }
 
-  /** Simulation-only: schedule relative to a world timestamp rather than wall clock. */
-  setNotification(mandateId: string, dispatchMs: number, delivered: boolean): void {
-    this.notify.set(mandateId, { dispatchMs, delivered });
+  /** The latest notice dispatched at or before `atMs` — the one NPCI would check. */
+  private noticeGoverning(mandateId: string, atMs: number): Notify {
+    const list = this.notices.get(mandateId) ?? [];
+    let best: Notify | null = null;
+    for (const n of list) {
+      if (n.dispatchMs <= atMs && (best === null || n.dispatchMs > best.dispatchMs)) best = n;
+    }
+    // No notice on or before the debit means the 24h rule cannot be satisfied.
+    return best ?? { dispatchMs: atMs, delivered: false };
   }
 }

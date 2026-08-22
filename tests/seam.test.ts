@@ -191,3 +191,52 @@ test("a razorpay payment with no bank does not invent one", () => {
   assert.equal(o.error_code, null);
   assert.deepEqual(o.prior_attempts, []);
 });
+
+test("a retry is judged against a notice that precedes it, not the mandate's last", async () => {
+  // The Phase 5 regression: notices were keyed per mandate, so the LAST attempt's
+  // notice governed every earlier retry. A January retry was judged against a
+  // September notice, failed the 24h rule, and recovery collapsed. Both PSPs were
+  // equally wrong, so the seam comparison could not see it.
+  const psp = new SimulatedPsp({ seed: 31, mandates: 60 });
+  const { records } = psp.world();
+  const byMandate = new Map<string, typeof records>();
+  for (const r of records) {
+    const list = byMandate.get(r.mandate_id) ?? [];
+    list.push(r);
+    byMandate.set(r.mandate_id, list);
+  }
+  const many = [...byMandate.values()].find((rs) => rs.length >= 4);
+  assert.ok(many !== undefined, "need a mandate with several attempts");
+  const sorted = [...many].sort((a, b) => a.timestamp_ms - b.timestamp_ms);
+  const first = sorted[0]!;
+  const last = sorted[sorted.length - 1]!;
+  assert.ok(
+    Date.parse(last.notification_dispatched_at) > Date.parse(first.notification_dispatched_at) + 60 * 86400_000,
+    "fixture needs notices months apart for this to be meaningful",
+  );
+
+  // Retrying the first attempt three days on must not be governed by a notice
+  // dispatched months later; if it were, the lead time would be negative.
+  const retryAt = new Date(first.timestamp_ms + 3 * 86400_000);
+  const res = await psp.scheduleDebit(first.mandate_id, retryAt, "k1");
+  assert.ok(
+    !(res.reason ?? "").includes("C2_NOTIFICATION_FAIL"),
+    `retry blocked on notification: the governing notice is in the wrong period (${res.reason})`,
+  );
+});
+
+test("the agent recovers a substantial share against the simulator", async () => {
+  // A blunt regression guard on the end-to-end outcome. The notice bug halved
+  // recovery while every structural test stayed green.
+  const fixture = buildFixture(31, 200);
+  const dbPath = tmpDb();
+  const summary = await runAgent({ dbPath, work: fixture.work, psp: fixture.psp });
+  const recovered = summary.by_cycle_status.recovered ?? 0;
+  const total = Object.values(summary.by_cycle_status).reduce((a, b) => a + b, 0);
+  assert.ok(total > 50, `fixture too small: ${total}`);
+  assert.ok(
+    recovered / total > 0.4,
+    `only ${recovered}/${total} mandates recovered — suspect the notification timeline`,
+  );
+  rmSync(dbPath, { force: true });
+});
