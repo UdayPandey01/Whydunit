@@ -56,7 +56,6 @@ export const CYCLE_LABEL: Record<string, string> = {
   stopped: "Stopped (cancelled)",
 };
 
-/** The four hard constraints, in plain language. */
 export const CHECK_LABEL: Record<string, string> = {
   max_interventions_per_cycle: "Retry limit not exceeded",
   never_schedule_in_restricted_window: "Outside NPCI restricted window",

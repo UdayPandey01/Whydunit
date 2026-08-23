@@ -1,7 +1,6 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
 
-/** Fires once when the element enters. Transform+opacity only. */
 export function Reveal({
   children, delay = 0, as: Tag = "div", className = "",
 }: { children: React.ReactNode; delay?: number; as?: React.ElementType; className?: string }) {
@@ -26,7 +25,6 @@ export function Reveal({
   );
 }
 
-/** Counts to a value once visible. Respects reduced motion by jumping to it. */
 export function Counter({ to, dp = 1, suffix = "%", ms = 1100, className = "" }:
   { to: number; dp?: number; suffix?: string; ms?: number; className?: string }) {
   const ref = useRef<HTMLSpanElement>(null);

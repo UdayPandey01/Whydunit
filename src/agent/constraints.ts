@@ -11,7 +11,6 @@ export type ActionName =
   | "escalate_to_human"
   | "stop";
 
-// Only the first two ever touch the PSP. The other two are terminal bookkeeping.
 export const EFFECTFUL: ActionName[] = ["reschedule", "refire_notification_then_reschedule"];
 
 export const CHECKS = {
@@ -37,13 +36,9 @@ export type Plan = {
 
 export type ConstraintContext = {
   interventions_used: number;
-  revoked_at: number | null; // explicit mandate.revoked webhook, if one arrived
+  revoked_at: number | null;
 };
 
-// A branded type only checkConstraints can mint. `execute` in agent.ts accepts
-// nothing else, so there is no code path that fires an unchecked plan -- the
-// constraints are load-bearing in the type system, not a convention and
-// emphatically not a sentence in a prompt.
 declare const CHECKED: unique symbol;
 export type CheckedPlan = Plan & { readonly [CHECKED]: true };
 

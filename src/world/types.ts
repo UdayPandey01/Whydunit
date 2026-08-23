@@ -10,7 +10,7 @@ export type Customer = {
   customer_id: string;
   bank: string;
   salary_day: number;
-  salary_delays: number[]; // per month index from horizon start
+  salary_delays: number[];
   income: number;
   spend_ratio: number;
   buffer: number;
@@ -30,8 +30,6 @@ export type Mandate = {
   churn_emits_event: boolean;
 };
 
-// Full world state for one debit attempt. `cause` is EMERGENT: it is whichever
-// process blocked first, never an input to generation.
 export type WorldRecord = {
   attempt_id: string;
   mandate_id: string;

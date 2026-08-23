@@ -36,8 +36,6 @@ test("every feature value is numeric or null", () => {
   }
 });
 
-// The real proof of causality: delete the future and the past must not move. If
-// any feature peeked ahead, truncating later attempts would change its value.
 test("features are strictly point-in-time", () => {
   const all = [...observations].sort((a, b) => Date.parse(a.timestamp) - Date.parse(b.timestamp));
   const cutIdx = Math.floor(all.length * 0.6);

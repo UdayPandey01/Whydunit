@@ -48,9 +48,7 @@ CREATE TABLE IF NOT EXISTS psp_ledger (
 
 export function openDb(path: string): Db {
   const db = new Database(path);
-  // WAL keeps readers off the writer's back; synchronous=FULL means a committed
-  // transaction has reached the disk before we act on it, which is the whole
-  // basis of the crash-resume argument.
+
   db.pragma("journal_mode = WAL");
   db.pragma("synchronous = FULL");
   db.exec(SCHEMA);

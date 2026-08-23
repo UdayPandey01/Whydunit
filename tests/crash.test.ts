@@ -35,7 +35,6 @@ function readDb(dbPath: string) {
   return { ledger, audit, perCycle };
 }
 
-// Baseline: what a run with no crash produces. Everything else must land here.
 const cleanPath = tmpDb();
 const cleanRun = run(cleanPath, 0);
 const clean = readDb(cleanPath);
@@ -53,18 +52,13 @@ test("kill -9 at any point never double-fires, and resume reaches the same state
     const dbPath = tmpDb();
     const crashed = run(dbPath, k);
 
-    // Positive control: if the child exited cleanly the crash never happened and
-    // this iteration proves nothing, so count how many were genuinely killed.
     if (crashed.signal === "SIGKILL") actuallyKilled++;
 
-    // Resume. One pass is enough: resumePending finishes anything mid-flight,
-    // then the normal loop carries on.
     const resumed = run(dbPath, 0);
     assert.equal(resumed.status, 0, `resume failed at crash point ${k}: ${resumed.stderr}`);
 
     const after = readDb(dbPath);
 
-    // 1. The PSP saw exactly the same effects, once each.
     assert.deepEqual(after.ledger, clean.ledger, `ledger diverged after crash at point ${k}`);
     assert.equal(
       new Set(after.ledger.map((r) => r.idempotency_key)).size,
@@ -72,12 +66,9 @@ test("kill -9 at any point never double-fires, and resume reaches the same state
       `duplicate idempotency key after crash at point ${k}`,
     );
 
-    // 2. No intervention was left dangling.
     const pending = after.audit.filter((a) => a.status !== "completed");
     assert.equal(pending.length, 0, `${pending.length} rows still pending after crash at point ${k}`);
 
-    // 3. The budget held. This is the constraint a crash is most likely to break,
-    //    because a lost increment would hand a mandate a fourth intervention.
     for (const c of after.perCycle) {
       assert.ok(
         c.interventions_used <= MAX_INTERVENTIONS_PER_CYCLE,
@@ -85,7 +76,6 @@ test("kill -9 at any point never double-fires, and resume reaches the same state
       );
     }
 
-    // 4. The audit log is identical too, not just the effects.
     assert.deepEqual(after.audit, clean.audit, `audit diverged after crash at point ${k}`);
 
     rmSync(dbPath, { recursive: true, force: true });
@@ -98,8 +88,7 @@ test("kill -9 at any point never double-fires, and resume reaches the same state
 });
 
 test("a crash mid-run really does leave work unfinished", () => {
-  // Guards against the whole suite passing because the child finishes before it
-  // can be killed: the interrupted state must differ from the completed state.
+
   const dbPath = tmpDb();
   const crashed = run(dbPath, 5);
   assert.equal(crashed.signal, "SIGKILL");

@@ -8,8 +8,8 @@ import { Bars } from "@/components/Bars";
 import { Replay } from "@/components/Replay";
 import { inr, lakh, pct, pp } from "@/lib/format";
 
-const HERO_FAIL_HOUR = 11 + 7 / 60;   // real: 2026-05-22T11:07 IST
-const HERO_FIX_HOUR = 14 + 7 / 60;    // real: rescheduled to 14:07, recovered
+const HERO_FAIL_HOUR = 11 + 7 / 60;
+const HERO_FIX_HOUR = 14 + 7 / 60;
 
 export default function Home() {
   const t = snap.totals;
@@ -25,7 +25,6 @@ export default function Home() {
     <>
       <Nav />
 
-      {/* ── 00 hero ── */}
       <section style={{ paddingTop: "clamp(72px,14vh,150px)" }}>
         <div className="wrap narrow">
           <Reveal><p className="eyebrow">Razorpay AI Buildathon · Track 03</p></Reveal>
@@ -54,7 +53,6 @@ export default function Home() {
         </div>
       </section>
 
-      {/* ── 01 the evidence ── */}
       <section>
         <div className="wrap">
           <div className="narrow">
@@ -91,7 +89,6 @@ export default function Home() {
         </div>
       </section>
 
-      {/* ── 02 suspects ── */}
       <section>
         <div className="wrap">
           <div className="narrow" style={{ marginBottom: 34 }}>
@@ -121,7 +118,6 @@ export default function Home() {
         </div>
       </section>
 
-      {/* ── 03 the dial — the argument ── */}
       <section style={{ background: "linear-gradient(180deg,var(--ground),var(--ground-deep) 45%,var(--ground))" }}>
         <div className="wrap">
           <div className="narrow" style={{ marginBottom: 46 }}>
@@ -157,7 +153,6 @@ export default function Home() {
         </div>
       </section>
 
-      {/* ── 04 the replay — WhyDunit doing the thing ── */}
       <section>
         <div className="wrap">
           <div className="narrow" style={{ marginBottom: 38 }}>
@@ -185,7 +180,6 @@ export default function Home() {
         </div>
       </section>
 
-      {/* ── 05 scale ── */}
       <section>
         <div className="wrap">
           <div className="narrow" style={{ marginBottom: 36 }}>
@@ -215,7 +209,6 @@ export default function Home() {
         </div>
       </section>
 
-      {/* ── 05 honest ── */}
       <section>
         <div className="wrap narrow">
           <Reveal><p className="eyebrow">06 — What it cannot do</p></Reveal>

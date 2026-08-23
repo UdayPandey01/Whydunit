@@ -1,11 +1,3 @@
-/**
- * Terminal rendering. PRESENTATION ONLY — nothing here computes a result.
- *
- * Colour is semantic, never decorative: green beats the baseline, red is worse,
- * yellow means the interval straddles zero, dim is context. Tables size their own
- * columns so no call site does width arithmetic, and the whole thing is capped at
- * 80 columns so it never wraps in a screen recording.
- */
 import pc from "picocolors";
 
 export const W = 78;
@@ -31,7 +23,6 @@ export const line = (s = ""): void => console.log(s);
 export const blank = (): void => console.log();
 export const note = (s: string): void => console.log(dim("  " + s));
 
-/** Section rule. One blank line before, never two. */
 export function rule(title?: string): void {
   blank();
   if (title === undefined) return line(dim("─".repeat(W)));
@@ -39,9 +30,6 @@ export function rule(title?: string): void {
   line(dim("── ") + head(title) + " " + dim(bar));
 }
 
-// ---------- numbers ----------
-
-/** Indian digit grouping, always. */
 export const money = (n: number): string => "₹" + Math.round(n).toLocaleString("en-IN");
 
 export function moneyShort(n: number): string {
@@ -52,12 +40,10 @@ export function moneyShort(n: number): string {
 
 export const pct = (frac: number, dp = 1): string => `${(100 * frac).toFixed(dp)}%`;
 
-/** A metric and its interval on ONE line, never split across rows. */
 export function withCI(v: string, lo: number, hi: number, dp = 3): string {
   return `${v} ${dim(`[${lo.toFixed(dp)}, ${hi.toFixed(dp)}]`)}`;
 }
 
-/** Colour a signed delta by whether its interval clears zero. */
 export function verdict(delta: number, lo: number, hi: number, lowerIsBetter = false): {
   tone: (s: string) => string;
   label: string;
@@ -66,8 +52,6 @@ export function verdict(delta: number, lo: number, hi: number, lowerIsBetter = f
   const better = lowerIsBetter ? delta < 0 : delta > 0;
   return better ? { tone: good, label: "wins" } : { tone: bad, label: "loses" };
 }
-
-// ---------- charts ----------
 
 export function bar(frac: number, width = 12, tone: (s: string) => string = key): string {
   const n = Math.max(0, Math.min(width, Math.round(frac * width)));
@@ -83,20 +67,14 @@ export function spark(values: number[]): string {
   return values.map((v) => SPARK[Math.round(((v - lo) / span) * 7)]!).join("");
 }
 
-// ---------- tables ----------
-
 export type Align = "l" | "r";
 
-/**
- * Columns size themselves from their content. Numbers right, labels left.
- * Over-wide cells are clipped rather than allowed to wrap.
- */
 export function table(headers: string[], rows: string[][], align: Align[] = []): void {
   const n = headers.length;
   const widths = headers.map((h, i) =>
     Math.max(vlen(h), ...rows.map((r) => vlen(r[i] ?? ""))),
   );
-  // Shrink the widest column until the whole table fits the frame.
+
   const total = () => widths.reduce((a, b) => a + b, 0) + 3 * (n - 1);
   while (total() > W && Math.max(...widths) > 6) {
     widths[widths.indexOf(Math.max(...widths))]! -= 1;
@@ -111,7 +89,6 @@ export function table(headers: string[], rows: string[][], align: Align[] = []):
   for (const r of rows) line(row(r));
 }
 
-/** Two-column label/value block. */
 export function kv(pairs: [string, string][]): void {
   const w = Math.max(...pairs.map(([k]) => vlen(k)));
   blank();
@@ -127,10 +104,6 @@ export function step(status: "ok" | "warn" | "fail", text: string): void {
   line(`  ${status === "ok" ? OK : status === "warn" ? WARN : FAIL} ${text}`);
 }
 
-/**
- * One-line progress for anything slow enough to look hung. Overwrites itself on
- * a TTY and prints once when piped, so logs stay clean.
- */
 export function progress(label: string): (done?: string) => void {
   const tty = process.stdout.isTTY === true;
   const started = Date.now();

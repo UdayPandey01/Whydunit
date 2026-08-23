@@ -1,4 +1,3 @@
-/** Public surface. Everything else is an implementation detail. */
 export { Whydunit, ruleScorer } from "./whydunit.ts";
 export type {
   Attribution, PlannedAction, Probabilities, Scorer, WhydunitOptions,

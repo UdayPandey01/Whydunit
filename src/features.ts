@@ -2,9 +2,6 @@ import { RESTRICTED_END_HOUR, RESTRICTED_START_HOUR } from "./config.ts";
 import type { ObservedAttempt } from "./observe.ts";
 import { DAY_MS, HOUR_MS, istParts, istWeekday, round } from "./time.ts";
 
-// Identity fields live OUTSIDE `features` so they can be used for splitting but
-// can never end up in the design matrix. `label` is not part of this type at all:
-// the join against ground truth happens in cli.ts, after this function has run.
 export type FeatureRow = {
   attempt_id: string;
   mandate_id: string;
@@ -22,8 +19,6 @@ const DECLINE_CODES = ["Z9", "U30", "U69", "ZM", "ZA"];
 
 type Point = { ms: number; failed: number; receipt_seen: number; receipt_failed: number };
 
-// Prefix-summed, time-sorted series. Built once per key (fleet, per hour, per
-// bank) so every trailing-window question is a pair of binary searches.
 type Index = { ms: number[]; n: number[]; failed: number[]; seen: number[]; recv_failed: number[] };
 
 function buildIndex(points: Point[]): Index {
@@ -50,8 +45,6 @@ function lowerBound(arr: number[], x: number): number {
   return lo;
 }
 
-// Half-open [from, to). `to` is always the attempt's own timestamp, so an attempt
-// never contributes to its own trailing statistics.
 function rangeStats(idx: Index, from: number, to: number) {
   const a = lowerBound(idx.ms, from);
   const b = lowerBound(idx.ms, to);
@@ -79,9 +72,6 @@ function excess(a: number | null, b: number | null): number | null {
   return a === null || b === null ? null : round(a - b, 5);
 }
 
-// ---------- the six families, one per invariance dimension ----------
-
-// Varies with hour of day. C1's whole signature.
 function temporal(ms: number, dayIndex: number): Record<string, number | null> {
   const p = istParts(ms);
   const restricted = p.hour >= RESTRICTED_START_HOUR && p.hour < RESTRICTED_END_HOUR;
@@ -91,13 +81,12 @@ function temporal(ms: number, dayIndex: number): Record<string, number | null> {
     day_of_month: p.day,
     day_of_week: istWeekday(ms),
     day_index: dayIndex,
-    // NPCI publishes the restricted window, so knowing the rule is not world state.
+
     in_restricted_window: restricted ? 1 : 0,
     hours_into_restricted_window: restricted ? round(p.hour - RESTRICTED_START_HOUR + p.minute / 60, 3) : 0,
   };
 }
 
-// How this attempt's clock position is behaving across the whole fleet right now.
 function clockRelative(ms: number, hourIdx: Index, fleetIdx: Index): Record<string, number | null> {
   const hour = rangeStats(hourIdx, ms - FLEET_WINDOW_MS, ms);
   const fleet = rangeStats(fleetIdx, ms - FLEET_WINDOW_MS, ms);
@@ -108,8 +97,6 @@ function clockRelative(ms: number, hourIdx: Index, fleetIdx: Index): Record<stri
   };
 }
 
-// Varies with bank and burst window. C2's signature. Deliberately RELATIVE, with
-// no raw bank identity anywhere -- otherwise the bank-holdout split is meaningless.
 function bankRelative(ms: number, bankIdx: Index, fleetIdx: Index): Record<string, number | null> {
   const wk = rangeStats(bankIdx, ms - BANK_WINDOW_MS, ms);
   const day = rangeStats(bankIdx, ms - BURST_WINDOW_MS, ms);
@@ -117,8 +104,6 @@ function bankRelative(ms: number, bankIdx: Index, fleetIdx: Index): Record<strin
   const fleetWk = rangeStats(fleetIdx, ms - BANK_WINDOW_MS, ms);
   const fleetDay = rangeStats(fleetIdx, ms - BURST_WINDOW_MS, ms);
 
-  // Binomial z of the last 24h against the bank's own 30d baseline: a spike in one
-  // bank while the fleet is calm is what an outage looks like from outside.
   let burstZ: number | null = null;
   if (day.n > 0 && base.fail_rate !== null && base.fail_rate > 0 && base.fail_rate < 1 && day.fail_rate !== null) {
     const se = Math.sqrt((base.fail_rate * (1 - base.fail_rate)) / day.n);
@@ -135,8 +120,6 @@ function bankRelative(ms: number, bankIdx: Index, fleetIdx: Index): Record<strin
   };
 }
 
-// Varies with customer and day-of-month. C3's signature. Mandate identity is the
-// merchant-visible stand-in for the customer.
 function customerRelative(o: ObservedAttempt, fleetIdx: Index, ms: number): Record<string, number | null> {
   const priors = o.prior_attempts;
   const successes = priors.filter((p) => p.success);
@@ -161,15 +144,12 @@ function notification(o: ObservedAttempt): Record<string, number | null> {
     notify_lead_hours: lead,
     notify_lead_under_24: lead < 24 ? 1 : 0,
     notify_dispatch_hour: istParts(Date.parse(o.notification.dispatched_at)).hour,
-    // Three-state on purpose: null is "no receipt came back", which is itself
-    // informative and must not be collapsed into "not delivered".
+
     receipt_delivered: o.notification.receipt === null ? null : o.notification.receipt === "delivered" ? 1 : 0,
     receipt_missing: o.notification.receipt === null ? 1 : 0,
   };
 }
 
-// The invariance probe. If prior failures are spread across different hours,
-// different days and a delivered notification, nothing situational explains them.
 function history(o: ObservedAttempt, ms: number): Record<string, number | null> {
   const priors = o.prior_attempts;
   const failures = priors.filter((p) => !p.success);
@@ -181,8 +161,6 @@ function history(o: ObservedAttempt, ms: number): Record<string, number | null> 
     consecutive++;
   }
 
-  // Causal filter: a revoke webhook that arrives AFTER this attempt was not
-  // available when the attempt was made, so it must not be visible here.
   const revoked = o.lifecycle_events
     .map((e) => Date.parse(e.timestamp))
     .filter((t) => t <= ms)
@@ -201,24 +179,12 @@ function history(o: ObservedAttempt, ms: number): Record<string, number | null> 
   };
 }
 
-// The attempt's own decline code. Not a derived family -- it is the rawest thing
-// the merchant has, and omitting it would be perverse. Kept lossy by construction
-// in config.ERROR_CODE_WEIGHTS.
 function decline(o: ObservedAttempt): Record<string, number | null> {
   const out: Record<string, number | null> = {};
   for (const c of DECLINE_CODES) out[`code_${c}`] = o.error_code === c ? 1 : 0;
   return out;
 }
 
-/**
- * Reads observations ONLY. Every trailing window is half-open on the attempt's own
- * timestamp and mandate history comes from `prior_attempts`, so no feature can see
- * anything that had not happened yet -- the Phase 3 agent has to decide at failure
- * time, and a model trained on look-ahead would be useless to it.
- *
- * Rows are emitted for FAILED attempts only; successes still feed the trailing
- * statistics and the mandate history.
- */
 export function computeFeatures(observations: ObservedAttempt[]): FeatureRow[] {
   const withMs = observations.map((o) => ({ o, ms: Date.parse(o.timestamp) }));
   withMs.sort((a, b) => a.ms - b.ms || a.o.attempt_id.localeCompare(b.o.attempt_id));

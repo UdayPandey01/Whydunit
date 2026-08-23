@@ -5,9 +5,6 @@ import type { AgentOptions, WorkItem } from "../src/agent/agent.ts";
 import { SimulatedPsp } from "../src/psp/simulated.ts";
 import type { Cause } from "../src/world/types.ts";
 
-// The expert-rule predictor from eval/evaluate.py, in TypeScript. Tests must not
-// need Python or a trained model; the crash proof only needs predictions that are
-// deterministic, not predictions that are good.
 function ruleCause(f: Record<string, number | null>): Cause {
   if (f.revoked_before_attempt === 1) return "C4_CANCELLATION";
   if (f.receipt_delivered === 0 || f.notify_lead_under_24 === 1) return "C2_NOTIFICATION_FAIL";
@@ -15,8 +12,6 @@ function ruleCause(f: Record<string, number | null>): Cause {
   return "C3_BALANCE_SHORTFALL";
 }
 
-/** A degenerate one-hot distribution: enough for the crash proof, which cares
- *  about durability rather than calibration. */
 function probaFor(cause: Cause): Record<Cause, number> {
   return {
     C1_EXECUTION_WINDOW: cause === "C1_EXECUTION_WINDOW" ? 0.97 : 0.01,
@@ -26,8 +21,6 @@ function probaFor(cause: Cause): Record<Cause, number> {
   };
 }
 
-// 200, not 120: fixing the revoke bug removed post-revoke attempts, which cut
-// the fixture below the size its own "substantial enough" guard requires.
 export function buildFixture(seed = 31, mandates = 200): Omit<AgentOptions, "dbPath" | "crashAfter"> {
   const psp = new SimulatedPsp({ seed, mandates });
   const { records } = psp.world();
@@ -49,9 +42,7 @@ export function buildFixture(seed = 31, mandates = 200): Omit<AgentOptions, "dbP
         revoked_at: revoke === undefined ? null : Date.parse(revoke.timestamp),
         cause: ruleCause(featById.get(r.attempt_id)!),
         proba: probaFor(ruleCause(featById.get(r.attempt_id)!)),
-        // Deterministically routes ~12%, so escalate_to_human is exercised too.
-        // The real router lives in src/exceptions.ts; the fixture only needs a
-        // stable flag, not a good one.
+
         confidence: hash32(r.attempt_id) % 100 < 12 ? 0.45 : 0.9,
         routed_to_exception_queue: hash32(r.attempt_id) % 100 < 12,
       };

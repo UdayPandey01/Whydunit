@@ -38,11 +38,10 @@ test("a well-supported, unambiguous attempt is not routed", () => {
 });
 
 test("rule: thin history routes ONLY when no single observable settles it", () => {
-  // 0 priors but plainly inside the NPCI window -> decisive, so not routed.
+
   const decisive = routeException(row({ mandate_prior_n: 0, in_restricted_window: 1, hour: 11 }), CONFIDENT, SUPPORT, 499);
   assert.equal(decisive, null, "a decisive observable should override thin history");
 
-  // 0 priors and nothing observable -> routed.
   const thin = routeException(row({ mandate_prior_n: 0 }), CONFIDENT, SUPPORT, 499);
   assert.ok(thin !== null);
   assert.ok(thin.reasons.includes("insufficient_history"));
@@ -97,8 +96,7 @@ test("every exception carries reason, competing hypotheses and resolving evidenc
 });
 
 test("the observable multi-cause detector never reaches for world state", () => {
-  // indicators() must be a function of merchant-visible features only. If it ever
-  // consulted the hidden multi_cause flag, passing world fields would change it.
+
   const f = row({ in_restricted_window: 1, hour: 11 }).features;
   const before = JSON.stringify(indicators(f));
   const after = JSON.stringify(indicators({ ...f, multi_cause: 1, cause: 1, balance_at_attempt: 0 }));

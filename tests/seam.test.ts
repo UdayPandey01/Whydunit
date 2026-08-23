@@ -15,11 +15,6 @@ import type { Observation, PspClient, Result } from "../src/psp/types.ts";
 import { Whydunit } from "../src/whydunit.ts";
 import { buildFixture } from "./fixture.ts";
 
-/**
- * A second implementation that shares NO code with the simulator: it answers from
- * a fixed script. If the agent behaves identically against both, it demonstrably
- * does not know which one it holds.
- */
 class ScriptedPsp implements PspClient {
   readonly name = "scripted";
   readonly calls: string[] = [];
@@ -62,8 +57,6 @@ test("the same agent cycle runs against two unrelated PSP implementations", asyn
   const simPath = tmpDb();
   const sim = await runAgent({ dbPath: simPath, work: fixture.work, psp: fixture.psp });
 
-  // Every key the simulator settled as recovered, the script also succeeds on, so
-  // the two runs should agree on every decision AND every outcome.
   const dbSim = new Database(simPath, { readonly: true });
   const recovered = new Set(
     (dbSim.prepare("SELECT idempotency_key FROM psp_ledger WHERE result='recovered'").all() as
@@ -81,7 +74,7 @@ test("the same agent cycle runs against two unrelated PSP implementations", asyn
   assert.deepEqual(scr.by_action, sim.by_action);
   assert.deepEqual(scr.by_outcome, sim.by_outcome);
   assert.deepEqual(scr.by_cycle_status, sim.by_cycle_status);
-  // The strongest form: the audit trails are identical row for row.
+
   assert.deepEqual(auditOf(scriptPath), auditOf(simPath));
   assert.ok(scripted.calls.length > 0, "the scripted PSP was never actually called");
 
@@ -90,8 +83,7 @@ test("the same agent cycle runs against two unrelated PSP implementations", asyn
 });
 
 test("constraints still bind against a PSP that would accept anything", async () => {
-  // A PSP that succeeds on everything must not be able to talk the agent past its
-  // own limits: the constraints live in the agent, not in the implementation.
+
   const fixture = buildFixture(31, 120);
   const yesMan = new ScriptedPsp(new Set());
   const dbPath = tmpDb();
@@ -109,7 +101,6 @@ test("attribute / plan / execute each work standalone", async () => {
   const observations = await psp.fetchFailedDebits(new Date(0));
   assert.ok(observations.length > 10, `only ${observations.length} failures`);
 
-  // attribution alone: no PSP calls, no execution
   const attributions = await w.attribute(observations);
   assert.equal(attributions.length, observations.length);
   for (const a of attributions) {
@@ -117,7 +108,6 @@ test("attribute / plan / execute each work standalone", async () => {
     assert.equal(Object.keys(a.probabilities).length, 4);
   }
 
-  // planning alone: still no side effects
   const plan = await w.plan(attributions);
   assert.equal(plan.length, attributions.length);
   assert.ok(plan.every((p) => ["reschedule", "refire_notification_then_reschedule", "stop"].includes(p.action)));
@@ -130,8 +120,7 @@ test("attribute / plan / execute each work standalone", async () => {
 test("cost ratio changes the stop threshold, and the default rule never stops alone", async () => {
   const psp = new SimulatedPsp({ seed: 7, mandates: 60 });
   const observations = await psp.fetchFailedDebits(new Date(0));
-  // The rule caps itself at 0.90, below any sane threshold, so a rule-only
-  // deployment can never abandon a mandate on its own say-so.
+
   for (const ratio of [5, 20, 40]) {
     const w = new Whydunit({ psp, costRatio: ratio });
     const plan = await w.plan(await w.attribute(observations));
@@ -173,7 +162,6 @@ test("the code map claims only what Razorpay documents", () => {
   assert.equal(evidenceFor("some_code_we_invented"), null);
   assert.equal(evidenceFor(null), null);
 
-  // The gap list is load-bearing documentation: C1 and C2 have no reachable code.
   const needs = UNMAPPED.map((u) => u.need).join(" ");
   assert.ok(needs.includes("mandate revoked"));
   assert.ok(needs.includes("pre-debit notification"));
@@ -193,10 +181,7 @@ test("a razorpay payment with no bank does not invent one", () => {
 });
 
 test("a retry is judged against a notice that precedes it, not the mandate's last", async () => {
-  // The Phase 5 regression: notices were keyed per mandate, so the LAST attempt's
-  // notice governed every earlier retry. A January retry was judged against a
-  // September notice, failed the 24h rule, and recovery collapsed. Both PSPs were
-  // equally wrong, so the seam comparison could not see it.
+
   const psp = new SimulatedPsp({ seed: 31, mandates: 60 });
   const { records } = psp.world();
   const byMandate = new Map<string, typeof records>();
@@ -215,8 +200,6 @@ test("a retry is judged against a notice that precedes it, not the mandate's las
     "fixture needs notices months apart for this to be meaningful",
   );
 
-  // Retrying the first attempt three days on must not be governed by a notice
-  // dispatched months later; if it were, the lead time would be negative.
   const retryAt = new Date(first.timestamp_ms + 3 * 86400_000);
   const res = await psp.scheduleDebit(first.mandate_id, retryAt, "k1");
   assert.ok(
@@ -226,8 +209,7 @@ test("a retry is judged against a notice that precedes it, not the mandate's las
 });
 
 test("the agent recovers a substantial share against the simulator", async () => {
-  // A blunt regression guard on the end-to-end outcome. The notice bug halved
-  // recovery while every structural test stayed green.
+
   const fixture = buildFixture(31, 200);
   const dbPath = tmpDb();
   const summary = await runAgent({ dbPath, work: fixture.work, psp: fixture.psp });

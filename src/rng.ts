@@ -1,8 +1,5 @@
 export type Rng = () => number;
 
-// mulberry32. Chosen over a dependency because a seeded stream is a primitive
-// here, not an abstraction: every world process draws from the same one and
-// byte-identical reproduction is a hard requirement.
 export function makeRng(seed: number): Rng {
   let a = seed >>> 0;
   return function next(): number {
@@ -39,8 +36,6 @@ export function clamp(x: number, lo: number, hi: number): number {
   return Math.min(hi, Math.max(lo, x));
 }
 
-// Insertion order of string keys is stable in JS, so the same weights table
-// always consumes the stream the same way.
 export function weighted<K extends string>(rng: Rng, weights: Record<K, number>): K {
   const keys = Object.keys(weights) as K[];
   let total = 0;
@@ -53,8 +48,6 @@ export function weighted<K extends string>(rng: Rng, weights: Record<K, number>)
   return keys[keys.length - 1]!;
 }
 
-// FNV-1a. Deterministic across runs and platforms, which is what makes both the
-// data splits and the agent's idempotency keys stable.
 export function hash32(s: string): number {
   let h = 0x811c9dc5;
   for (let i = 0; i < s.length; i++) {

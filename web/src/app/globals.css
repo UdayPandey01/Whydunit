@@ -1,22 +1,16 @@
-/* ── WhyDunit design system ────────────────────────────────────────────────
-   Committed dark. Colour is graded like film, not signage: one muted gold as
-   the only highlight, semantics desaturated so nothing screams. Type is
-   Schibsted Grotesk (a real product grotesque, tight apertures) with Martian
-   Mono reserved strictly for machine tokens — codes, ids, seeds.
-   ────────────────────────────────────────────────────────────────────────── */
 :root{
   --ground:#0A0A0C; --ground-deep:#060607; --surface:#101114; --raised:#16181C;
   --line:#21242A; --line-2:#2E3238;
 
-  --ink:#EFEDE8;            /* bone, warm — reads richer than pure white */
+  --ink:#EFEDE8;
   --ink-2:#8A8D93;
   --ink-3:#585C63;
 
-  --gold:#E8C56A;           /* the ONLY highlight. used maybe six times. */
+  --gold:#E8C56A;
   --gold-dim:#8A7539;
-  --danger:#D9544D;         /* brick, desaturated */
+  --danger:#D9544D;
   --danger-dim:#4A2422;
-  --success:#4C9F70;        /* muted */
+  --success:#4C9F70;
   --success-dim:#1E3A2B;
 
   --ease:cubic-bezier(.19,1,.22,1);
@@ -57,10 +51,8 @@ section{padding-block:clamp(84px,12vh,148px);position:relative}
 .lede{color:var(--ink-2);font-size:clamp(16px,1.8vw,18.5px);max-width:58ch;line-height:1.62}
 .gold{color:var(--gold)} .dngr{color:var(--danger)} .good{color:var(--success)} .dim{color:var(--ink-2)}
 
-/* hairline dividers instead of boxes — quieter, more editorial */
 .rule{height:1px;background:var(--line);border:0;margin:0}
 
-/* reveal: transform + opacity only, GPU-friendly */
 .rv{opacity:0;transform:translate3d(0,20px,0);
   transition:opacity .82s var(--ease),transform .82s var(--ease)}
 .rv[data-in="1"]{opacity:1;transform:none}
@@ -86,13 +78,11 @@ section{padding-block:clamp(84px,12vh,148px);position:relative}
   .rv{opacity:1;transform:none}
 }
 
-/* ── dial ── */
 .dial{width:100%;height:auto;max-width:440px;overflow:visible}
 .clockgrid{display:grid;grid-template-columns:minmax(0,440px) minmax(0,1fr);
   gap:clamp(32px,6vw,80px);align-items:center}
 @media(max-width:860px){.clockgrid{grid-template-columns:1fr;gap:40px}}
 
-/* ── video beat ── */
 .beat{position:relative;width:100%;aspect-ratio:16/9;border-radius:12px;overflow:hidden;
   background:var(--ground-deep);border:1px solid var(--line)}
 .beat-video{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;opacity:0;
@@ -102,7 +92,6 @@ section{padding-block:clamp(84px,12vh,148px);position:relative}
   transition:opacity .6s var(--ease)}
 .beat-fallback[data-hidden="1"]{opacity:0;pointer-events:none}
 
-/* ── receipt ── */
 .receipt{max-width:440px;border-radius:12px;overflow:hidden;
   background:var(--surface);border:1px solid var(--line);
   box-shadow:0 40px 90px -60px #000, 0 1px 0 rgba(255,255,255,.02) inset}
@@ -115,7 +104,6 @@ section{padding-block:clamp(84px,12vh,148px);position:relative}
 .chip{font-family:"Martian Mono",monospace;font-size:9.5px;letter-spacing:.12em;
   padding:4px 9px;border-radius:4px;background:var(--danger-dim);color:var(--danger)}
 
-/* ── suspects / panels ── */
 .grid4{display:grid;grid-template-columns:repeat(auto-fit,minmax(214px,1fr));gap:12px}
 .tile{background:var(--surface);border:1px solid var(--line);border-radius:11px;padding:17px 18px;
   transition:opacity .6s var(--ease),filter .6s var(--ease),border-color .6s var(--ease)}
@@ -130,7 +118,6 @@ section{padding-block:clamp(84px,12vh,148px);position:relative}
   letter-spacing:-.03em}
 .tile[data-state="keep"] .vd{color:var(--gold)}
 
-/* ── bars ── */
 .bars{display:flex;flex-direction:column;gap:2px}
 .bar{display:grid;grid-template-columns:minmax(112px,180px) 1fr 74px;gap:18px;align-items:center;
   padding:13px 0;border-bottom:1px solid var(--line);font-size:14.5px}
@@ -140,14 +127,12 @@ section{padding-block:clamp(84px,12vh,148px);position:relative}
 .bar .val{text-align:right;font-variant-numeric:tabular-nums;font-feature-settings:"tnum" 1}
 @media(max-width:640px){.bar{grid-template-columns:1fr 68px;gap:8px}.bar .track{grid-column:1/-1;order:3}}
 
-/* ── limits ── */
 .limit{display:grid;grid-template-columns:180px 1fr;gap:26px;padding:20px 0;
   border-bottom:1px solid var(--line)}
 .limit dt{font-family:"Martian Mono",monospace;font-size:11px;letter-spacing:.06em;color:var(--danger)}
 .limit dd{margin:0;color:var(--ink-2);font-size:14.5px;line-height:1.6}
 @media(max-width:640px){.limit{grid-template-columns:1fr;gap:7px}}
 
-/* ── nav ── */
 .nav{position:sticky;top:0;z-index:20;backdrop-filter:blur(14px);
   background:color-mix(in srgb,var(--ground) 82%,transparent);border-bottom:1px solid var(--line)}
 .nav .in{max-width:1120px;margin:0 auto;padding:14px var(--pad);
@@ -158,7 +143,6 @@ section{padding-block:clamp(84px,12vh,148px);position:relative}
 .beacon{width:6px;height:6px;border-radius:50%;background:var(--gold);
   box-shadow:0 0 0 3px rgba(232,197,106,.15)}
 
-/* ── dashboard ── */
 .kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(186px,1fr));gap:12px}
 .kpi{background:var(--surface);border:1px solid var(--line);border-radius:11px;padding:18px 19px}
 .kpi .k{font-family:"Martian Mono",monospace;font-size:9.5px;letter-spacing:.16em;
@@ -174,7 +158,6 @@ tr:last-child td{border-bottom:none}
 td.n{text-align:right;font-variant-numeric:tabular-nums;font-feature-settings:"tnum" 1}
 .scroll-x{overflow-x:auto;border:1px solid var(--line);border-radius:11px;background:var(--surface)}
 
-/* ── replay ledger ── */
 .replay{border:1px solid var(--line);border-radius:12px;background:var(--surface);overflow:hidden;
   box-shadow:0 50px 110px -70px #000}
 .replay-hd{display:flex;justify-content:space-between;align-items:center;gap:14px;

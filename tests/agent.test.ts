@@ -77,15 +77,12 @@ test("constraint: never retry after a C4 determination or an explicit revoke", (
 });
 
 test("checks are recorded as skipped, never silently passed", () => {
-  // `stop` is subject to none of the four: two are effectful-only, two need a
-  // scheduled time. The audit says "skipped" rather than "passed", so the log
-  // never claims a check was satisfied when it simply did not apply.
+
   const stop = checkConstraints({ ...basePlan, action: "stop", scheduled_at: null }, okCtx);
   assert.equal(stop.skipped.length, 4);
   assert.deepEqual(stop.passed, []);
   assert.ok(stop.ok);
 
-  // An effectful action still skips only the scheduling pair when it has no time.
   const noTime = checkConstraints({ ...basePlan, scheduled_at: null }, okCtx);
   assert.deepEqual(noTime.skipped.sort(), [CHECKS.NOT_RESTRICTED, CHECKS.NOTIFY_LEAD].sort());
   assert.deepEqual(noTime.passed.sort(), [CHECKS.MAX_INTERVENTIONS, CHECKS.NOT_CANCELLED].sort());
@@ -122,17 +119,15 @@ test("stopping is cost-sensitive, not argmax", () => {
       C3_BALANCE_SHORTFALL: 1 - pC4 - 0.02, C4_CANCELLATION: pC4,
     },
   });
-  const t = stopThreshold(20); // 0.952
+  const t = stopThreshold(20);
 
-  // C4 is the argmax at 0.60, but nowhere near confident enough to abandon the
-  // money. The old argmax rule stopped here; this is the bug being fixed.
   const marginal = decide(withC4(0.6), 1, false, t);
   assert.equal(marginal.action, "reschedule");
   assert.equal(marginal.cause, "C3_BALANCE_SHORTFALL", "must act on the best RETRYABLE cause");
 
   assert.equal(decide(withC4(0.97), 1, false, t).action, "stop");
   assert.equal(decide(withC4(0.951), 1, false, t).action, "reschedule", "just below the line keeps trying");
-  // A symmetric cost model reverts to argmax-like behaviour at 0.5.
+
   assert.equal(decide(withC4(0.6), 1, false, stopThreshold(1)).action, "stop");
 });
 
@@ -144,8 +139,6 @@ test("the planner never proposes a time outside the horizon", () => {
     }
   }
 });
-
-// ---------- end-to-end: the audit log must be able to prove the constraints ----------
 
 const dir = mkdtempSync(join(tmpdir(), "whydunit-agent-"));
 const dbPath = join(dir, "agent.db");
@@ -212,8 +205,7 @@ test("nothing effectful ever happened after a cancellation", () => {
   let examinedOnRevokedMandates = 0;
   for (const r of audit) {
     if (r.scheduled_at === null) continue;
-    // A vetoed plan still records the time it WOULD have used -- that is the
-    // audit doing its job. Only plans that actually reached the PSP count here.
+
     if (r.outcome === "blocked_by_constraint") continue;
     assert.notEqual(r.cause, "C4_CANCELLATION", `${r.idempotency_key} scheduled a retry on a C4`);
     const rev = revoked.get(r.mandate_id as string);
@@ -222,17 +214,12 @@ test("nothing effectful ever happened after a cancellation", () => {
       assert.ok(Date.parse(r.scheduled_at as string) < rev, `${r.idempotency_key} fired after revoke`);
     }
   }
-  // Non-vacuity, where the horizon makes it possible. At 90 days explicit churn is
-  // rare enough that a 200-mandate fixture can contain none at all, so this is
-  // conditional; the veto logic itself is covered unconditionally by the next test.
+
   if (revoked.size > 0) {
     assert.ok(examinedOnRevokedMandates > 0, "no effectful action was examined on a revoked mandate");
   }
 });
 
-// The veto itself is tested directly rather than via a rare fixture coincidence:
-// since the revoke fix, a mandate's last attempt can precede its cancellation, so
-// the agent does propose retries landing after it, and the constraint must refuse.
 test("a retry scheduled past a revoke is vetoed", () => {
   const rev = istMs(2026, 0, 10, 0, 0);
   const r = checkConstraints(

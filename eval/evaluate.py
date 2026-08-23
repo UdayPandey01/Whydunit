@@ -1,18 +1,4 @@
 #!/usr/bin/env python3
-"""Full evaluation battery for the cause classifier.
-
-Per-class precision/recall/F1, macro-F1, confusion matrix, calibration curve and
-ECE, each with a 1000-sample bootstrap 95% CI, for all three split schemes, plus
-two classification baselines.
-
-The bootstrap resamples MANDATES, not rows. Attempts on one mandate share a
-customer, a balance trajectory and a churn state, so a row-level bootstrap would
-treat correlated rows as independent and report intervals that are too narrow.
-
-Also writes out-of-fold predictions over every row (GroupKFold by mandate) for the
-recovery-policy comparison in src/policy.ts, so that comparison runs on 1098
-out-of-sample rows instead of one 296-row test split.
-"""
 import json
 import pathlib
 import pickle
@@ -29,9 +15,7 @@ CODES = ["Z9", "U30", "U69", "ZM", "ZA"]
 N_BOOT = 1000
 SEED = 20260903
 
-
 def prf(y_true, y_pred):
-    """Per-class precision/recall/F1 over the fixed class list, plus macro-F1."""
     out = {}
     f1s = []
     for c in CLASSES:
@@ -47,7 +31,6 @@ def prf(y_true, y_pred):
     out["accuracy"] = float((y_pred == y_true).mean()) if len(y_true) else 0.0
     return out
 
-
 def ece(y_true, y_pred, conf, bins=10):
     edges = np.linspace(0, 1, bins + 1)
     total = 0.0
@@ -62,9 +45,7 @@ def ece(y_true, y_pred, conf, bins=10):
         curve.append({"bin": [float(lo), float(hi)], "n": int(m.sum()), "confidence": c, "accuracy": acc})
     return float(total), curve
 
-
 def cluster_bootstrap(y_true, y_pred, groups, conf=None, n=N_BOOT, seed=SEED):
-    """Resample mandates with replacement; return every headline metric's draws."""
     rng = np.random.default_rng(seed)
     uniq = np.unique(groups)
     idx_by_group = {g: np.where(groups == g)[0] for g in uniq}
@@ -85,13 +66,10 @@ def cluster_bootstrap(y_true, y_pred, groups, conf=None, n=N_BOOT, seed=SEED):
 
     return {k: [float(np.percentile(v, 2.5)), float(np.percentile(v, 97.5))] for k, v in draws.items()}
 
-
 def confusion(y_true, y_pred):
     return [[int(((y_true == a) & (y_pred == b)).sum()) for b in CLASSES] for a in CLASSES]
 
-
 def expert_rule(rows, idx):
-    """Hand-written expert rule over published/obvious signals, in world precedence."""
     out = []
     for i in np.where(idx)[0]:
         f = rows[i]["features"]
@@ -105,14 +83,7 @@ def expert_rule(rows, idx):
             out.append("C3_BALANCE_SHORTFALL")
     return np.array(out)
 
-
 def paired_macro_f1_delta(y_true, pred_a, pred_b, groups, n=N_BOOT, seed=SEED):
-    """Resample mandates once, score BOTH predictors on the same resample.
-
-    Overlapping independent CIs is a weaker and more conservative test than asking
-    whether the difference itself excludes zero, so the difference is what we
-    report when deciding if a model beats a baseline.
-    """
     rng = np.random.default_rng(seed)
     uniq = np.unique(groups)
     idx_by_group = {g: np.where(groups == g)[0] for g in uniq}
@@ -126,17 +97,14 @@ def paired_macro_f1_delta(y_true, pred_a, pred_b, groups, n=N_BOOT, seed=SEED):
         "ci": [float(np.percentile(draws, 2.5)), float(np.percentile(draws, 97.5))],
     }
 
-
 def code_of(row):
     for c in CODES:
         if row["features"].get(f"code_{c}") == 1:
             return c
     return "NONE"
 
-
 def fmt_ci(v, ci):
     return f"{v:.3f} [{ci[0]:.3f}, {ci[1]:.3f}]"
-
 
 def main():
     rows = [json.loads(l) for l in (DATA / "features.jsonl").open()]
@@ -167,7 +135,6 @@ def main():
         e, curve = ece(yt, yp, conf)
         ci = cluster_bootstrap(yt, yp, groups[te], conf)
 
-        # Baselines on the same test rows, fit on the same training rows.
         majority = np.full(te.sum(), max(CLASSES, key=lambda c: (y[tr] == c).sum()))
         lookup = {}
         for c in np.unique(codes[tr]):
@@ -226,7 +193,6 @@ def main():
         verdict = "NOT distinguishable" if d["ci"][0] <= 0 <= d["ci"][1] else "distinguishable"
         print(f"  PAIRED  model - expert_rule macro-F1  {d['delta']:+.3f} [{d['ci'][0]:+.3f}, {d['ci'][1]:+.3f}]  <- {verdict}")
 
-    # ---- diagnostic: is C4 only working because of the revoke webhook? ----
     mandate_te = np.array([r["split"]["mandate"] == "test" for r in rows])
     yp_m = bundle["models"]["mandate"].predict(X[mandate_te])
     yt_m, ex_m = y[mandate_te], explicit[mandate_te]
@@ -242,7 +208,6 @@ def main():
     print(f"  explicit revoke webhook  n={diag['c4_explicit_n']:>3}  recall {diag['c4_explicit_recall']}")
     print(f"  silent churn             n={diag['c4_silent_n']:>3}  recall {diag['c4_silent_recall']}")
 
-    # ---- out-of-fold predictions over every row, for the policy comparison ----
     oof_pred = np.empty(len(rows), dtype=object)
     oof_proba = np.zeros((len(rows), len(CLASSES)))
     for tr_i, te_i in GroupKFold(n_splits=5).split(X, y, groups):
@@ -278,20 +243,11 @@ def main():
                 "actual": r["label"],
                 "predicted": oof_pred[i],
                 "rule_predicted": rule_all[i],
-                # Rounded at the serialization boundary, NOT in the computation.
-                # float64 repr is not portable: the same deterministic fit differs
-                # in the last bit between BLAS backends (arm64 vs the x86 CI
-                # runner), which made an artifact hash fail while every class,
-                # every decision and every downstream artifact were identical.
-                # 6 dp sits ~11 orders above that noise and ~3 below the tightest
-                # threshold anything downstream uses. Rows need not sum to exactly
-                # 1 afterwards; nothing consumes them as a normalised distribution.
                 "proba": {c: round(float(oof_proba[i, j]), 6) for j, c in enumerate(CLASSES)},
             }) + "\n")
 
     (DATA / "evaluation.json").write_text(json.dumps(report, indent=2) + "\n")
     print(f"\n[eval] wrote data/evaluation.json and data/predictions.jsonl")
-
 
 if __name__ == "__main__":
     main()

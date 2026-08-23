@@ -6,14 +6,6 @@ import type { Cause, Customer, Mandate } from "./types.ts";
 
 export type Notify = { dispatchMs: number; delivered: boolean };
 
-/**
- * Counterfactual adjudication. Asks the same four world processes what would have
- * happened had the debit been presented at `at` instead.
- *
- * Both the offline policy comparison and the live agent route every outcome
- * through here: a policy is CHOSEN from observations and predictions, but whether
- * it would have worked is answered by the world, never by the model.
- */
 export function attemptAt(
   customer: Customer,
   mandate: Mandate,

@@ -7,7 +7,6 @@ function monthIndex(year: number, month: number): number {
   return (year - s.year) * 12 + (month - s.month);
 }
 
-// Most recent salary credit at or before `ms`, including that month's delay.
 function lastSalaryCredit(c: Customer, ms: number): number {
   const p = istParts(ms);
   for (let back = 0; back < 3; back++) {
@@ -23,10 +22,6 @@ function lastSalaryCredit(c: Customer, ms: number): number {
   return ms - 30 * DAY_MS;
 }
 
-// C3. Balance is a deterministic function of the customer's drawn parameters and
-// the clock, so it is reproducible and needs no mutable ledger. Spend is
-// front-loaded through the month, which is what makes shortfall track
-// day-of-month while staying invariant to bank and hour.
 export function balanceAt(c: Customer, ms: number): { balance: number; days_since_salary: number } {
   const credit = lastSalaryCredit(c, ms);
   const d = (ms - credit) / DAY_MS;

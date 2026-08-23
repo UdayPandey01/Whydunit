@@ -83,7 +83,7 @@ export function buildReport(scored: Scored[], support: Support): Report {
   const sum = (rows: { amount: number }[]) => rows.reduce((a, r) => a + r.amount, 0);
 
   return {
-    // The exact format asked for. Percentages are of failed attempts.
+
     headline:
       `Classified ${pct(classified.length).toFixed(1)}% at macro-F1 ${f1.toFixed(3)} ` +
       `[${ci[0].toFixed(3)}–${ci[1].toFixed(3)}], ` +
@@ -95,8 +95,7 @@ export function buildReport(scored: Scored[], support: Support): Report {
     routed_pct: pct(exceptions.length),
     macro_f1_classified: f1,
     macro_f1_classified_ci: ci,
-    // Reported alongside so the queue's effect on quality is never hidden: if the
-    // classified figure is not above this, the queue is not earning its keep.
+
     macro_f1_all: macroF1(judged(scored)),
     amount_at_risk: sum(scored),
     amount_classified: sum(classified),
@@ -116,7 +115,6 @@ const REASON_TEXT: Record<ExceptionReason, string> = {
 
 const inr = (n: number) => `₹${Math.round(n).toLocaleString("en-IN")}`;
 
-/** Attribution and queue only — everything knowable before the agent has run. */
 export function renderAttribution(r: Report): string[] {
   const lines = [
     "",
@@ -139,14 +137,6 @@ export function renderAttribution(r: Report): string[] {
   return lines;
 }
 
-/**
- * The full merchant digest for a finished cycle.
- *
- * `agent` is REQUIRED, not optional. It used to be nullable, and the recovery
- * section simply disappeared when the database was absent — which is how a stale
- * previous cycle's figures came to be printed under "Recovery this cycle" when
- * the file happened to exist. A missing agent run is now a caller error.
- */
 export function renderDigest(r: Report, agent: Record<string, number>): string[] {
   const lines = [r.headline, ...renderAttribution(r), "Recovery this cycle:"];
   for (const [k, v] of Object.entries(agent).sort((a, b) => b[1] - a[1])) {

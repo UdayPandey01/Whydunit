@@ -1,9 +1,3 @@
-/**
- * Freezes the real pipeline artifacts into one small JSON the web app imports at
- * build time. data/ is gitignored, so without this a fresh clone (or Vercel) has
- * no numbers — and hardcoding them in the frontend would let them drift from the
- * pipeline silently. The provenance block is what makes the snapshot auditable.
- */
 import { readFileSync, writeFileSync } from "node:fs";
 import { createHash } from "node:crypto";
 import Database from "better-sqlite3";
@@ -16,7 +10,6 @@ const policy = read("data/policy.json");
 const evaluation = read("data/evaluation.json");
 const manifest = read("reference/manifest.json");
 
-// The hero case, pulled live rather than transcribed.
 const HERO = "mdt_00004";
 const obs = lines("data/observations.jsonl").filter((o) => o.mandate_id === HERO)
   .sort((a, b) => Date.parse(a.timestamp) - Date.parse(b.timestamp));
@@ -24,9 +17,6 @@ const preds = new Map(lines("data/predictions.jsonl").map((p) => [p.attempt_id, 
 const failures = obs.filter((o) => !o.success);
 const subject = failures[failures.length - 1];
 
-// The agent's own audit rows, replayed on the landing page. Reading them here
-// rather than transcribing them is the point: the on-screen story cannot drift
-// from what the agent actually did.
 function trail(mandate) {
   const db = new Database("data/agent.db", { readonly: true });
   const rows = db.prepare(
@@ -77,8 +67,7 @@ const snapshot = {
   })),
   deltas: policy.paired_deltas,
   sweep: policy.sweep.map((s) => ({ t: s.threshold, rate: s.rate, retries: s.retries, net: s.net })),
-  // A full year on one mandate: recovers, escalates when unsure, keeps trying,
-  // then stops. The arc is the product.
+
   replay: {
     mandate: "mdt_00060",
     bank: "KOTAK",

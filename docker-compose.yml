@@ -2,11 +2,8 @@ services:
   whydunit:
     build: .
     image: whydunit:local
-    # Results land on the host so `docker compose run whydunit npm run explain ...`
-    # and `npm run verify` see the same artifacts the pipeline just wrote.
     volumes:
       - ./data:/app/data
     environment:
-      # Override to sweep the horizon: WHYDUNIT_HORIZON=360 docker compose up
       WHYDUNIT_HORIZON: "${WHYDUNIT_HORIZON:-270}"
       NO_COLOR: "${NO_COLOR:-}"

@@ -3,8 +3,6 @@ import { daysInMonth, istMs, istParts } from "./time.ts";
 
 export const SAFE_HOUR = 14;
 
-// Shared by the offline policy comparison and the agent's action planner. Both
-// must avoid the NPCI window in exactly the same way; two copies would drift.
 export function isRestrictedTime(ms: number): boolean {
   const h = istParts(ms).hour;
   return h >= RESTRICTED_START_HOUR && h < RESTRICTED_END_HOUR;
@@ -24,8 +22,6 @@ export function nextMonthDay(ms: number, day: number): number {
   return istMs(y, mo, Math.min(day, daysInMonth(y, mo)), SAFE_HOUR, 0);
 }
 
-// A mandate's billing cycle. The "max 3 interventions per mandate per cycle"
-// constraint is scoped to this key.
 export function cycleOf(ms: number): string {
   const p = istParts(ms);
   return `${p.year}-${String(p.month + 1).padStart(2, "0")}`;

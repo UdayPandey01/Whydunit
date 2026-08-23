@@ -18,8 +18,6 @@ test("a different seed produces different output", () => {
   assert.notEqual(jsonl(a), jsonl(b));
 });
 
-// The observation layer draws from its own stream so that retuning what the
-// merchant can see never moves the world underneath it.
 test("changing the observation seed leaves the world untouched", () => {
   const world = generateWorld({ seed: 5, mandates: 200 });
   const before = jsonl(world);

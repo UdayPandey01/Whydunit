@@ -3,7 +3,6 @@ import { useEffect, useRef, useState } from "react";
 
 type Item = { tag: string; name: string; why: string; out: string; keep?: boolean; kept: string };
 
-/** Reveals the deduction: three suspects grey out, one holds. */
 export function Eliminate({ items }: { items: Item[] }) {
   const ref = useRef<HTMLDivElement>(null);
   const [state, setState] = useState<Record<number, "out" | "keep">>({});

@@ -11,25 +11,13 @@ import type { ObservedAttempt } from "../observe.ts";
 import { FAILED, OK } from "./types.ts";
 import type { PspClient, Result } from "./types.ts";
 
-/**
- * The seeded world behind the PSP interface. Default implementation: needs no
- * credentials and no network, which is what makes the whole project runnable by
- * anyone who clones it.
- *
- * Notification state lives HERE rather than in the agent, because that is where
- * it lives in reality — the agent asks for a notice to be sent and never learns
- * whether the bank delivered it.
- */
 export class SimulatedPsp implements PspClient {
   readonly name = "simulated";
   private readonly customers: Map<string, Customer>;
   private readonly mandates: Map<string, Mandate>;
   private readonly records: WorldRecord[];
   private readonly observations: ObservedAttempt[];
-  // A TIMELINE per mandate, not a single value. Each attempt had its own pre-debit
-  // notice, and the one that governs a retry is the most recent notice dispatched
-  // at or before it. Collapsing this to one entry per mandate let the LAST
-  // attempt's notice govern every earlier retry — see INCIDENTS #13.
+
   private readonly notices = new Map<string, Notify[]>();
   private readonly pendingNotice = new Map<string, string>();
   private readonly cancelled = new Set<string>();
@@ -51,7 +39,6 @@ export class SimulatedPsp implements PspClient {
     for (const list of this.notices.values()) list.sort((a, b) => a.dispatchMs - b.dispatchMs);
   }
 
-  /** Exposed for the offline harness, which needs ground truth. Not on the interface. */
   world(): { records: WorldRecord[]; customers: Map<string, Customer>; mandates: Map<string, Mandate> } {
     return { records: this.records, customers: this.customers, mandates: this.mandates };
   }
@@ -67,9 +54,7 @@ export class SimulatedPsp implements PspClient {
     if (this.cancelled.has(mandateId)) return FAILED("payment_cancelled", "mandate cancelled");
 
     const customer = this.customers.get(mandate.customer_id)!;
-    // A notice requested since the last debit is resolved HERE, against the debit
-    // it precedes. Dispatching it against wall-clock time would be meaningless in
-    // a world that runs in simulated 2026 time.
+
     const pending = this.pendingNotice.get(mandateId);
     if (pending !== undefined) {
       const dispatchMs = at.getTime() - (NOTIFY_MIN_LEAD_HOURS + 2) * HOUR_MS;
@@ -98,14 +83,13 @@ export class SimulatedPsp implements PspClient {
     return OK(idempotencyKey);
   }
 
-  /** The latest notice dispatched at or before `atMs` — the one NPCI would check. */
   private noticeGoverning(mandateId: string, atMs: number): Notify {
     const list = this.notices.get(mandateId) ?? [];
     let best: Notify | null = null;
     for (const n of list) {
       if (n.dispatchMs <= atMs && (best === null || n.dispatchMs > best.dispatchMs)) best = n;
     }
-    // No notice on or before the debit means the 24h rule cannot be satisfied.
+
     return best ?? { dispatchMs: atMs, delivered: false };
   }
 }

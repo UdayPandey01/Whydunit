@@ -1,9 +1,5 @@
 name: verify
 
-# The reproducibility claim, executed. This runs the whole pipeline from the seed
-# and then diffs every artifact hash and eleven headline metrics against the
-# committed reference/manifest.json. A green badge means the numbers in the README
-# came out of this repo, on a clean machine, today.
 on:
   push:
     branches: [main, master]

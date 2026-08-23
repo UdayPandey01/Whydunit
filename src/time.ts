@@ -1,9 +1,6 @@
 export const HOUR_MS = 3_600_000;
 export const DAY_MS = 86_400_000;
 
-// Every simulated clock reading is IST wall-clock. We keep epoch-ms internally
-// and shift by the fixed +05:30 offset when reading calendar fields, so the
-// host machine's local timezone can never perturb generated data.
 const IST_OFFSET_MS = 5.5 * HOUR_MS;
 
 export function istParts(ms: number) {

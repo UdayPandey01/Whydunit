@@ -3,8 +3,6 @@ import assert from "node:assert/strict";
 import { HIDDEN_KEYS, observe } from "../src/observe.ts";
 import { generateWorld } from "../src/world/generate.ts";
 
-// Walks the SERIALIZED record, so this asserts on the keys that actually reach
-// disk rather than on the TypeScript type.
 function keyNames(value: unknown, into: Set<string> = new Set()): Set<string> {
   if (Array.isArray(value)) {
     for (const v of value) keyNames(v, into);

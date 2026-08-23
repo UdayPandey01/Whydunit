@@ -18,13 +18,6 @@ const ACTION: Record<string, string> = {
   stop: "stopped",
 };
 
-/**
- * Scroll-driven replay of the agent's real audit rows for one mandate.
- *
- * Every value on screen is read from the committed snapshot, which is generated
- * from agent.db — so the story on the page cannot drift from what the agent
- * actually did. Rows arm as they enter; the ledger total climbs with them.
- */
 export function Replay({ rows, amount, mandate, bank }:
   { rows: Row[]; amount: number; mandate: string; bank: string }) {
   const ref = useRef<HTMLDivElement>(null);
@@ -40,8 +33,7 @@ export function Replay({ rows, amount, mandate, bank }:
       cancelAnimationFrame(raf);
       raf = requestAnimationFrame(() => {
         const r = el.getBoundingClientRect();
-        // 0 at the moment the block's top reaches 78% of the viewport,
-        // 1 once its bottom passes 30% — a gentle, un-hijacked pace.
+
         const start = innerHeight * 0.78, end = innerHeight * 0.3;
         const k = (start - r.top) / Math.max(1, r.height - (start - end));
         setLive(Math.round(Math.min(1, Math.max(0, k)) * rows.length));

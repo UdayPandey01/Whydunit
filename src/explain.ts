@@ -7,19 +7,6 @@ import type { Report } from "./report.ts";
 const MODEL = "claude-opus-5";
 const CACHE_PATH = "data/explanations-cache.json";
 
-/**
- * The natural-language layer, and NOTHING ELSE.
- *
- * Attribution, routing and every number in the report are decided before this
- * file runs, by deterministic code. What keeps the model out of the scoring path
- * is not the prompt below — it is that the only thing this module returns is a
- * string, it is written to its own file, and no other module reads that file
- * back. An adversarial model that insisted on a different cause could not change
- * a single attribution, action or figure.
- *
- * `tests/explain.test.ts` enforces exactly that.
- */
-
 const SYSTEM = `You write short plain-language notes for a payments operations team about failed UPI AutoPay debits.
 
 The cause attribution you are given has ALREADY been decided by a deterministic classifier and a rules engine. It is not yours to revise. Do not second-guess it, do not propose a different cause, do not hedge about whether it is right, and do not invent facts that are not in the evidence you are given.
@@ -48,7 +35,6 @@ export function hasCredentials(): boolean {
   return Boolean(process.env.ANTHROPIC_API_KEY ?? process.env.ANTHROPIC_AUTH_TOKEN);
 }
 
-/** Live Claude explainer. Cached on disk so a rerun costs nothing and repeats. */
 export function claudeExplainer(): Explainer {
   const client = new Anthropic();
   const cache = loadCache();
@@ -65,7 +51,7 @@ export function claudeExplainer(): Explainer {
         system,
         thinking: { type: "adaptive" },
         output_config: { effort: "low" },
-        // Opt-in refusal fallback: a decline would otherwise just stop the turn.
+
         betas: ["server-side-fallback-2026-06-01"],
         fallbacks: [{ model: "claude-opus-4-8" }],
         messages: [{ role: "user", content: prompt }],
@@ -84,7 +70,7 @@ export function claudeExplainer(): Explainer {
       writeFileSync(CACHE_PATH, JSON.stringify(cache, null, 2) + "\n");
       return text;
     } catch (error) {
-      // Most specific first; an explanation failing must never fail the pipeline.
+
       if (error instanceof Anthropic.AuthenticationError) return "[explanation unavailable: authentication failed]";
       if (error instanceof Anthropic.RateLimitError) return "[explanation unavailable: rate limited]";
       if (error instanceof Anthropic.APIError) return `[explanation unavailable: API error ${error.status}]`;

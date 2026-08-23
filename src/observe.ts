@@ -13,10 +13,6 @@ export type LifecycleEvent = {
   timestamp: string;
 };
 
-// Everything a merchant could actually pull from its own systems plus the PSP
-// webhook stream. Defined positively, field by field -- NOT as Omit<WorldRecord,
-// ...>, because subtraction would make the visible set a residue of the world
-// type and any new world field would silently become visible.
 export type ObservedAttempt = {
   attempt_id: string;
   mandate_id: string;
@@ -38,9 +34,6 @@ export type ObservedAttempt = {
   lifecycle_events: LifecycleEvent[];
 };
 
-// Written out by hand on purpose. Deriving this from WorldRecord would make the
-// guard self-defeating: adding a ground-truth field to ObservedAttempt would
-// remove it from the derived union and the assertion would silently pass.
 export const HIDDEN_KEYS = [
   "cause",
   "blockers",
@@ -63,8 +56,6 @@ export const HIDDEN_KEYS = [
 type HiddenKey = (typeof HIDDEN_KEYS)[number];
 type AssertNever<T extends never> = T;
 
-// Compile-time half of the boundary: `tsc --noEmit` fails the moment a hidden
-// name appears anywhere in the observation shape. Runtime half is tests/boundary.
 type _NoLeakTopLevel = AssertNever<Extract<keyof ObservedAttempt, HiddenKey>>;
 type _NoLeakNested = AssertNever<
   Extract<
@@ -75,9 +66,6 @@ type _NoLeakNested = AssertNever<
   >
 >;
 
-// THE BOUNDARY. Every field is copied explicitly; there is deliberately no
-// spread of a world record anywhere in this file, because a spread is exactly
-// how a newly added world field would leak through unnoticed.
 export function observe(world: WorldRecord[], seed: number = OBSERVATION_SEED): ObservedAttempt[] {
   const rng = makeRng(seed);
   const priors = new Map<string, PriorAttempt[]>();
@@ -86,15 +74,12 @@ export function observe(world: WorldRecord[], seed: number = OBSERVATION_SEED): 
   for (const w of world) {
     const prior = priors.get(w.mandate_id) ?? [];
 
-    // Partial observability: the merchant always knows it dispatched, but only
-    // sometimes gets a delivery receipt back from the PSP.
     const receipt = bernoulli(rng, RECEIPT_VISIBLE_RATE)
       ? w.world.notification_delivered_by_bank
         ? "delivered"
         : "failed"
       : null;
 
-    // Only the ~60% of cancellations that actually fire a webhook are visible.
     const lifecycle_events: LifecycleEvent[] =
       w.world.churned_at !== null && w.world.churn_emits_event
         ? [{ type: "mandate.revoked", timestamp: w.world.churned_at }]

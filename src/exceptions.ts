@@ -41,15 +41,6 @@ const LABEL: Record<Cause, string> = {
   C4_CANCELLATION: "cancellation",
 };
 
-/**
- * Observable indicators of each mechanism.
- *
- * The world's `multi_cause` flag is hidden by construction, so a conflict has to
- * be inferred from evidence a merchant actually holds: two or more independent
- * indicators firing on the same attempt. This is a much weaker detector than the
- * hidden flag — see DESIGN.md §5 for its measured recall — but it is the only
- * version that does not reach across the observation boundary.
- */
 export function indicators(f: Record<string, number | null>): Record<Cause, string[]> {
   const out: Record<Cause, string[]> = {
     C1_EXECUTION_WINDOW: [],
@@ -81,10 +72,6 @@ function firing(f: Record<string, number | null>): Cause[] {
     .map(([c]) => c);
 }
 
-// Circumstantial support, used to explain a hypothesis that has no hard indicator.
-// Always returns at least one line: a competing hypothesis listed with no evidence
-// at all tells a reviewer nothing, and the ABSENCE of an indicator is itself the
-// useful fact ("it was not in the window, so the window does not explain it").
 function circumstantial(f: Record<string, number | null>, cause: Cause): string[] {
   const ev: string[] = [];
   if (cause === "C2_NOTIFICATION_FAIL") {
@@ -106,8 +93,6 @@ function circumstantial(f: Record<string, number | null>, cause: Cause): string[
   return ev;
 }
 
-// Why a hypothesis is NOT directly indicated. Stated explicitly so a reviewer can
-// see what was ruled out rather than inferring it from silence.
 const ABSENT: Record<Cause, (f: Record<string, number | null>) => string> = {
   C1_EXECUTION_WINDOW: (f) =>
     `attempted at ${String(f.hour).padStart(2, "0")}:00 IST, outside the 10:00-13:00 window, so the window does not explain it`,
@@ -119,8 +104,6 @@ const ABSENT: Record<Cause, (f: Record<string, number | null>) => string> = {
   C4_CANCELLATION: () => "no revoke webhook, and no invariant run of failures to point at cancellation",
 };
 
-// What would actually settle a given contest. Keyed by the competing pair so the
-// queue tells a human what to go and look at, not just that it is unsure.
 const RESOLVES: Record<string, string[]> = {
   "C1_EXECUTION_WINDOW|C3_BALANCE_SHORTFALL": [
     "retry outside 10:00-13:00 at the same point in the salary cycle: success isolates the window, failure isolates funds",
@@ -158,12 +141,6 @@ function resolvingEvidence(top: Cause[], reasons: ExceptionReason[]): string[] {
   return out;
 }
 
-/**
- * The routing decision. Pure, deterministic, and entirely in code — no model and
- * no LLM participates in deciding what a human sees.
- *
- * Returns null when the attempt can be auto-attributed.
- */
 export function routeException(
   row: FeatureRow,
   probabilities: Record<Cause, number>,
@@ -179,10 +156,6 @@ export function routeException(
   const reasons: ExceptionReason[] = [];
   const detail: string[] = [];
 
-  // Rule A, narrowed: thin history only matters when no single observable already
-  // settles the call. Blanket routing measured WORSE than no queue at all --
-  // it swept away easy in-window and revoke-webhook cases and kept the residue.
-  // See DESIGN.md §5.
   const decisive = fired.length === 1;
   if (Number(f.mandate_prior_n) < MIN_PRIOR_ATTEMPTS && !decisive) {
     reasons.push("insufficient_history");

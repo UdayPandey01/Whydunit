@@ -11,12 +11,8 @@ import { openDb } from "./db.ts";
 import type { Db } from "./db.ts";
 import { fire } from "./psp.ts";
 
-// The agent may only act inside the window it can actually observe. Beyond this
-// the world would still answer, but we would be booking recoveries in a period
-// the simulation never generated -- so instead the agent hands those to a human.
 export const HORIZON_END_MS = START_MS + HORIZON_DAYS * DAY_MS;
 
-// What the agent is allowed to know: predictions and merchant-visible facts.
 export type WorkItem = {
   source_attempt: string;
   mandate_id: string;
@@ -26,39 +22,29 @@ export type WorkItem = {
   revoked_at: number | null;
   cause: Cause | null;
   confidence: number;
-  // Full calibrated distribution. The stop decision needs P(C4) itself, not the
-  // argmax label, because the two mistakes it trades off are not symmetric.
+
   proba: Record<Cause, number> | null;
-  // Set by src/exceptions.ts. The router is the single authority on what a human
-  // sees; Phase 3's bare confidence threshold was a placeholder and is gone, so
-  // two thresholds can never disagree.
+
   routed_to_exception_queue: boolean;
 };
 
 export type AgentOptions = {
   dbPath: string;
   work: WorkItem[];
-  /** The only way out to the world. The agent cannot tell which one it holds. */
+
   psp: PspClient;
   crashAfter?: number;
-  /** Cost-derived P(C4) above which stopping is the cheaper bet. */
+
   stopThreshold?: number;
 };
 
-// ---------- crash injection ----------
-
 let crashBudget: number | null = null;
 
-// SIGKILL to self: uncatchable, no unwinding, no finally, no flush. Anything the
-// process believed but had not committed is simply gone -- which is the only
-// honest way to test a durability claim.
 function checkpoint(): void {
   if (crashBudget === null) return;
   crashBudget -= 1;
   if (crashBudget <= 0) process.kill(process.pid, "SIGKILL");
 }
-
-// ---------- decision ----------
 
 export function decide(
   item: WorkItem,
@@ -66,8 +52,7 @@ export function decide(
   revokedBefore: boolean,
   threshold: number = stopThreshold(DEFAULT_COST_RATIO),
 ): { action: ActionName; cause: Cause | null } {
-  // An explicit revoke is certain knowledge, not a prediction, so it stops
-  // unconditionally. Everything below is a belief and gets the cost test.
+
   if (revokedBefore) return { action: "stop", cause: "C4_CANCELLATION" };
   if (attemptNo > MAX_INTERVENTIONS_PER_CYCLE) return { action: "escalate_to_human", cause: item.cause };
   if (item.routed_to_exception_queue) return { action: "escalate_to_human", cause: item.cause };
@@ -83,9 +68,6 @@ export function decide(
   }
 }
 
-// Cause-matched timing. Each branch addresses that cause and nothing else.
-// Returns null when no legal slot exists inside the horizon, which the caller
-// turns into an escalation rather than a silent no-op.
 export function scheduleFor(cause: Cause | null, attemptNo: number, from: number): number | null {
   let at: number;
   if (cause === "C1_EXECUTION_WINDOW") {
@@ -103,8 +85,6 @@ export function scheduleFor(cause: Cause | null, attemptNo: number, from: number
   return at <= from || at >= HORIZON_END_MS ? null : at;
 }
 
-// ---------- persistence helpers ----------
-
 type CycleRow = { interventions_used: number; status: string };
 
 function cycleState(db: Db, mandate: string, cycle: string): CycleRow {
@@ -116,8 +96,6 @@ function cycleState(db: Db, mandate: string, cycle: string): CycleRow {
     .get(mandate, cycle) as CycleRow;
 }
 
-// The ONLY function that produces an effect, and it accepts nothing but a
-// CheckedPlan, so an unchecked plan cannot reach the PSP.
 async function execute(db: Db, opts: AgentOptions, item: WorkItem, plan: CheckedPlan) {
   return fire(db, plan.idempotency_key, plan.mandate_id, toIso(plan.scheduled_at!), async (key) => {
     if (plan.action === "refire_notification_then_reschedule") {
@@ -133,9 +111,7 @@ async function execute(db: Db, opts: AgentOptions, item: WorkItem, plan: Checked
 }
 
 function recordIntent(db: Db, plan: Plan, checks: { passed: string[]; failed: string[]; skipped: string[] }) {
-  // Intent and budget consumption commit together. If the process dies after
-  // this, the mandate has already spent the intervention and the pending row is
-  // resumable -- it can never quietly acquire a fourth.
+
   db.transaction(() => {
     db.prepare(
       `INSERT OR IGNORE INTO audit_log
@@ -195,19 +171,11 @@ function completeIntervention(db: Db, key: string, mandate: string, cycle: strin
   })();
 }
 
-// ---------- resume ----------
-
 type PendingRow = {
   idempotency_key: string; mandate_id: string; cycle: string; source_attempt: string;
   action: string; scheduled_at: string;
 };
 
-/**
- * Finish anything that was mid-flight. The PSP ledger is authoritative, and
- * `fire` is idempotent, so this is simply "do the effect" again: if it already
- * happened the ledger returns the stored result, and if it did not, it happens
- * now. Correctness does not depend on knowing where the crash landed.
- */
 async function resumePending(db: Db, opts: AgentOptions): Promise<number> {
   const rows = db.prepare("SELECT * FROM audit_log WHERE status='pending'").all() as PendingRow[];
   const byAttempt = new Map(opts.work.map((w) => [w.source_attempt, w]));
@@ -236,8 +204,6 @@ async function resumePending(db: Db, opts: AgentOptions): Promise<number> {
   return rows.length;
 }
 
-// ---------- the loop ----------
-
 async function processItem(db: Db, opts: AgentOptions, item: WorkItem, cycle: string, threshold: number): Promise<void> {
   for (;;) {
     const st = cycleState(db, item.mandate_id, cycle);
@@ -247,14 +213,12 @@ async function processItem(db: Db, opts: AgentOptions, item: WorkItem, cycle: st
     const revokedBefore = item.revoked_at !== null && item.revoked_at <= item.failed_at;
     const decision = decide(item, attemptNo, revokedBefore, threshold);
     const proposed = decision.action;
-    // Schedule against the cause we ACTED on, not the argmax label, so the audit
-    // trail and the timing agree with the decision that was actually made.
+
     const actedCause = decision.cause;
     const scheduled = EFFECTFUL.includes(proposed)
       ? scheduleFor(actedCause, Math.min(attemptNo, MAX_INTERVENTIONS_PER_CYCLE), item.failed_at)
       : null;
-    // No legal slot left inside the horizon: a human takes it, rather than the
-    // agent booking a retry it cannot honestly account for.
+
     const action = EFFECTFUL.includes(proposed) && scheduled === null ? "escalate_to_human" : proposed;
 
     const plan: Plan = {
@@ -295,11 +259,11 @@ async function processItem(db: Db, opts: AgentOptions, item: WorkItem, cycle: st
     }
 
     recordIntent(db, plan, checks);
-    checkpoint(); // crash here: intent committed, effect not yet attempted
+    checkpoint();
     const res = await execute(db, opts, item, checks.plan);
-    checkpoint(); // crash here: effect committed, outcome not yet recorded
+    checkpoint();
     completeIntervention(db, plan.idempotency_key, plan.mandate_id, cycle, res.success);
-    checkpoint(); // crash here: everything committed
+    checkpoint();
   }
 }
 

@@ -12,19 +12,14 @@ const byCause = new Map<Cause, number>();
 for (const f of fails) byCause.set(f.cause!, (byCause.get(f.cause!) ?? 0) + 1);
 
 test("run size scales with the configured horizon", () => {
-  // A monthly mandate has at most floor(horizon/30) due dates. The shortfall is
-  // mandates created mid-horizon plus, since the revoke fix, mandates that stop
-  // being debited when they are explicitly cancelled. Measured at 0.92-0.95 of
-  // the ceiling across 90/180/270/360d, so the band is a real check, not a
-  // tautology -- the old assertion hardcoded the 90-day answer and broke the
-  // moment the horizon became a swept parameter.
+
   const ceiling = N_MANDATES * Math.floor(HORIZON_DAYS / 30);
   const ratio = world.length / ceiling;
   assert.ok(ratio > 0.85 && ratio <= 1.0, `attempts=${world.length} of ceiling ${ceiling} (ratio ${ratio.toFixed(3)})`);
 });
 
 test("no attempt is ever made after an explicit revoke", () => {
-  // BUG 2: a revoked mandate is dead at the PSP. Silent churn must be unaffected.
+
   let explicitAfter = 0;
   let silentAfter = 0;
   for (const w of world) {
@@ -52,7 +47,7 @@ test("all four classes are present and the mix stays imbalanced", () => {
   const shares = [...byCause.values()].map(share);
   const max = Math.max(...shares);
   const min = Math.min(...shares);
-  // Real base rates are skewed; a near-uniform mix would mean we normalised them.
+
   assert.ok(max > 0.4, `largest class only ${max.toFixed(2)} -- distribution looks normalised`);
   assert.ok(min < 0.2, `smallest class ${min.toFixed(2)} -- distribution looks normalised`);
   assert.equal(
@@ -79,9 +74,6 @@ test("successes have no blockers and no decline code", () => {
   }
 });
 
-// The one place cause information reaches an observable. If any code became a
-// near-perfect predictor the classifier would be a lookup table and the whole
-// premise of the project would be void.
 test("no decline code is a lookup table for its cause", () => {
   const byCode = new Map<string, Map<string, number>>();
   for (const f of fails) {
@@ -104,11 +96,10 @@ test("each class carries its declared invariance signature", () => {
 
   const c3 = fails.filter((f) => f.cause === "C3_BALANCE_SHORTFALL");
   for (const f of c3) assert.ok(f.amount > f.world.balance_at_attempt, "C3 must be short");
-  // C3 varies with day-of-month: it should cluster later in the salary cycle.
+
   const lateShare = c3.filter((f) => f.world.days_since_salary > 14).length / c3.length;
   assert.ok(lateShare > 0.5, `C3 not concentrated late in the cycle: ${lateShare.toFixed(2)}`);
 
-  // C4 is invariant to everything: once it fires nothing later ever succeeds.
   const churnedMandates = new Set(
     world.filter((w) => w.world.churned_at !== null).map((w) => w.mandate_id),
   );

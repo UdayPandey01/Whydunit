@@ -1,16 +1,5 @@
 import type { Cause } from "../world/types.ts";
 
-/**
- * Razorpay/UPI error_reason -> what it tells us about an observable field.
- *
- * Verified against razorpay.com/docs/errors/payments/upi/ on 2026-08-22. Only
- * codes that appear in the published UPI error list are here; nothing is invented
- * to make the table look finished.
- *
- * `evidence_for` is the cause a code is EVIDENCE for, not a label. Attribution
- * still runs on the full observation, because Phase 1 established that no decline
- * code is a reliable proxy for a cause.
- */
 export const CODE_MAP: Record<string, { evidence_for: Cause | null; note: string }> = {
   insufficient_funds: {
     evidence_for: "C3_BALANCE_SHORTFALL",
@@ -26,11 +15,6 @@ export const CODE_MAP: Record<string, { evidence_for: Cause | null; note: string
   invalid_vpa: { evidence_for: null, note: "not one of our four causes; routed to exceptions" },
 };
 
-/**
- * THE GAP LIST. Codes and signals our model needs that Razorpay does not expose.
- * Documented rather than faked — an honest gap is worth more than a full-looking
- * table with invented rows.
- */
 export const UNMAPPED: { need: string; why: string; workaround: string }[] = [
   {
     need: "mandate revoked / cancelled at the PSP (our C4 signal)",

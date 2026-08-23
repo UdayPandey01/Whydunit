@@ -8,11 +8,6 @@ const pt = (a: number, r: number) => [
   CY - r * Math.cos((a * Math.PI) / 180),
 ];
 
-/**
- * 24-hour dial. The whole argument in one picture: a fixed-interval retry
- * advances the date and preserves the hour, so every retry lands on the same
- * spoke — inside the band NPCI blocks. Angles come from the real attempt time.
- */
 export function Dial({ failHour, fixHour }: { failHour: number; fixHour: number }) {
   const ref = useRef<SVGSVGElement>(null);
   const [step, setStep] = useState(0);
@@ -41,7 +36,6 @@ export function Dial({ failHour, fixHour }: { failHour: number; fixHour: number 
       <circle cx={CX} cy={CY} r={R} fill="none" stroke="var(--line)" />
       <circle cx={CX} cy={CY} r={R - 34} fill="none" stroke="var(--line)" opacity=".45" />
 
-      {/* the blocked band */}
       <path d={`M ${ax} ${ay} A ${R} ${R} 0 0 1 ${bx} ${by}`} fill="none"
         stroke="var(--danger)" strokeWidth="42" opacity=".10" />
       <path d={`M ${ax} ${ay} A ${R} ${R} 0 0 1 ${bx} ${by}`} fill="none"
@@ -61,7 +55,6 @@ export function Dial({ failHour, fixHour }: { failHour: number; fixHour: number 
           fill="var(--ink-3)" fontFamily="Martian Mono, monospace" letterSpacing="1">{t}</text>;
       })}
 
-      {/* three naive retries — identical angle, stacked */}
       {[0, 1, 2].map((i) => (
         <g key={i} style={{
           transform: `rotate(${failA}deg)`, transformOrigin: `${CX}px ${CY}px`,
@@ -73,7 +66,6 @@ export function Dial({ failHour, fixHour }: { failHour: number; fixHour: number 
         </g>
       ))}
 
-      {/* the reschedule, clear of the band */}
       <g style={{
         transform: `rotate(${step >= 5 ? fixA : failA}deg)`, transformOrigin: `${CX}px ${CY}px`,
         opacity: step >= 4 ? 1 : 0,

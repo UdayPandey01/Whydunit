@@ -15,8 +15,6 @@ const HORIZON_END_MS = START_MS + HORIZON_DAYS * DAY_MS;
 
 export type Action = { at: number; renotify: boolean };
 
-// ---------- the policies ----------
-
 function naiveSchedule(t: number): Action[] {
   return [24, 72, 168].map((h) => ({ at: t + h * HOUR_MS, renotify: false }));
 }
@@ -25,8 +23,6 @@ function windowAwareSchedule(t: number): Action[] {
   return [24, 72, 168].map((h) => ({ at: toSafeHour(t + h * HOUR_MS), renotify: false }));
 }
 
-// Cause-matched. Each branch is the cheapest action that addresses THAT cause and
-// nothing else; C4 deliberately spends no retries at all.
 function modelSchedule(t: number, predicted: Cause): Action[] {
   switch (predicted) {
     case "C1_EXECUTION_WINDOW": {
@@ -80,8 +76,7 @@ export function runPolicy(
     let recovered = false;
     let spent = 0;
     for (const action of schedule(rec).slice(0, RETRY_BUDGET)) {
-      // A retry that falls outside the observation horizon cannot be adjudicated,
-      // so it is neither spent nor credited.
+
       if (action.at > HORIZON_END_MS || action.at <= t) continue;
       if (action.renotify) {
         const dispatchMs = action.at - (NOTIFY_MIN_LEAD_HOURS + 2) * HOUR_MS;
@@ -109,9 +104,7 @@ export function schedulesFor(
   threshold: number = stopThreshold(DEFAULT_COST_RATIO),
   retryCostRupees: number = COST_RETRY_RUPEES,
 ): Record<string, (rec: WorldRecord) => Action[]> {
-  // The rule scores one class with certainty, so an amount-aware threshold has to
-  // be applied to the same belief the flat one saw: P(C4) = 1 when the rule says
-  // C4, 0 otherwise. That keeps the flat/EV comparison about the THRESHOLD.
+
   const ruleProba = (c: Cause): Record<Cause, number> => ({
     C1_EXECUTION_WINDOW: c === "C1_EXECUTION_WINDOW" ? 1 : 0,
     C2_NOTIFICATION_FAIL: c === "C2_NOTIFICATION_FAIL" ? 1 : 0,
@@ -132,39 +125,30 @@ export function schedulesFor(
   return {
     do_nothing: () => [],
     naive_retry: (r) => naiveSchedule(r.timestamp_ms),
-    // Cost-sensitive: stop only when P(C4) clears the threshold, otherwise act on
-    // the best RETRYABLE cause rather than abandoning recoverable money.
+
     model_policy: (r) => drive(r, probabilities.get(r.attempt_id), threshold),
-    // Same predictions, same actions, but the threshold is priced from THIS
-    // mandate's value rather than a fleet-wide ratio.
+
     model_ev: (r) => drive(r, probabilities.get(r.attempt_id), stopThresholdFor(r.amount, retryCostRupees)),
-    // The same cause-matched actions, driven by four if-statements instead of a
-    // gradient-boosted model. If this matches model_policy, the classifier is
-    // decorative and the value lives entirely in the action mapping.
+
     rule_policy: (r) => {
       const p = rulePredictions.get(r.attempt_id);
       return p === undefined ? naiveSchedule(r.timestamp_ms) : modelSchedule(r.timestamp_ms, p);
     },
-    // Amount-weighting is a POLICY change, not a model change, so the rule gets it
-    // too. Comparing an EV model against a flat rule would be a rigged fight.
+
     rule_ev: (r) => {
       const p = rulePredictions.get(r.attempt_id);
       return p === undefined
         ? naiveSchedule(r.timestamp_ms)
         : drive(r, ruleProba(p), stopThresholdFor(r.amount, retryCostRupees));
     },
-    // Amount-weighted BUDGET rather than amount-weighted threshold: same cause,
-    // same timings, but a mandate only buys as many retries as its expected return
-    // pays for. This is the knob that touches C1/C2/C3 spend, not just C4 stopping.
+
     model_ev_budget: (r) => {
       const acts = drive(r, probabilities.get(r.attempt_id), stopThresholdFor(r.amount, retryCostRupees));
       return acts.slice(0, retryBudgetFor(r.amount, RETRY_BUDGET, retryCostRupees));
     },
-    // Diagnostic, not one of the three requested baselines: the naive schedule
-    // with the published NPCI window applied. Isolates how much the CLASSIFIER
-    // adds over simply knowing the rule.
+
     window_aware_retry: (r) => windowAwareSchedule(r.timestamp_ms),
-    // Diagnostic ceiling: the same cause-matched actions driven by ground truth.
+
     oracle_policy: (r) => modelSchedule(r.timestamp_ms, r.cause!),
   };
 }
@@ -178,9 +162,6 @@ export function bootstrapCI(
   return clusterBootstrapCI(outcomes, (o) => o.mandate_id, metric, n, seed);
 }
 
-// Paired on the SAME resampled mandates. Comparing two independent CIs answers a
-// weaker question than "is the difference non-zero", and these policies run over
-// an identical batch, so the paired version is the right test.
 export function pairedDeltaCI(
   a: PolicyOutcome[],
   b: PolicyOutcome[],

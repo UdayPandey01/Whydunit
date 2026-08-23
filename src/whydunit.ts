@@ -12,16 +12,8 @@ import type { Cause } from "./world/types.ts";
 
 export type Probabilities = Record<Cause, number>;
 
-/** Feature row -> calibrated probabilities. Swap in your own model here. */
 export type Scorer = (features: Record<string, number | null>) => Probabilities;
 
-/**
- * Default scorer: the hand-written expert rule, which Phase 4A measured as tying
- * the gradient-boosted model on rupees recovered. It is deliberately capped at
- * 0.90 so it can never reach the C4 stop threshold on its own — a rule cannot
- * express failure invariance, so it must never be the thing that abandons a
- * mandate. Pass model probabilities in to enable cost-sensitive stopping.
- */
 export const ruleScorer: Scorer = (f) => {
   const pick: Cause =
     f.revoked_before_attempt === 1 ? "C4_CANCELLATION"
@@ -55,19 +47,15 @@ export type PlannedAction = {
 
 export type WhydunitOptions = {
   psp: PspClient;
-  /** Wrongful stop vs wrongful retry. Higher means more reluctant to give up. */
+
   costRatio?: number;
   maxInterventions?: number;
   scorer?: Scorer;
   dbPath?: string;
 };
 
-/**
- * Three methods, each usable on its own. A merchant who wants attribution and
- * nothing else never has to touch plan() or execute().
- */
 export class Whydunit {
-  /** The port. Read it if you want to pull observations before attributing. */
+
   readonly psp: PspClient;
   private readonly scorer: Scorer;
   private readonly threshold: number;
@@ -84,7 +72,6 @@ export class Whydunit {
     this.dbPath = opts.dbPath ?? join(mkdtempSync(join(tmpdir(), "whydunit-")), "agent.db");
   }
 
-  /** Observations in, causes out. No side effects, no PSP calls. */
   async attribute(observations: Observation[]): Promise<Attribution[]> {
     const failed = observations.filter((o) => !o.success);
     return computeFeatures(failed).map((row) => {
@@ -102,7 +89,6 @@ export class Whydunit {
     });
   }
 
-  /** Attributions in, intended actions out. Still no side effects. */
   async plan(attributions: Attribution[]): Promise<PlannedAction[]> {
     return attributions.map((a) => {
       const d = decideCause(a.probabilities, this.threshold);
@@ -120,11 +106,6 @@ export class Whydunit {
     });
   }
 
-  /**
-   * The only method that touches the PSP. Every hard constraint is enforced
-   * inside the agent, so a plan that violates one is vetoed and audited rather
-   * than executed — including plans handed in from outside this class.
-   */
   async execute(plan: PlannedAction[], observations: Observation[]): Promise<AgentSummary> {
     const byId = new Map(observations.map((o) => [o.attempt_id, o]));
     const work: WorkItem[] = plan.map((p) => {

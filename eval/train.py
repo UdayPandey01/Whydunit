@@ -1,12 +1,4 @@
 #!/usr/bin/env python3
-"""Fit one HistGradientBoosting classifier per split scheme.
-
-A script, not a service: reads data/features.jsonl, writes data/model.pkl and
-data/metrics.json, exits.
-
-Hyperparameters are set once from defaults that suit ~800 rows and are NOT tuned
-against test performance. If the model cannot beat a baseline, that is the result.
-"""
 import json
 import pathlib
 import pickle
@@ -18,9 +10,6 @@ DATA = pathlib.Path("data")
 SCHEMES = ["mandate", "bank", "time"]
 SEED = 20260903
 
-# No class_weight="balanced" on purpose. Reweighting would lift macro-F1 on the
-# small classes while wrecking the probability calibration that evaluate.py
-# measures with ECE. The imbalance is real, so we report through it.
 PARAMS = dict(
     max_iter=200,
     learning_rate=0.06,
@@ -30,7 +19,6 @@ PARAMS = dict(
     early_stopping=False,
     random_state=SEED,
 )
-
 
 def load():
     rows = [json.loads(l) for l in (DATA / "features.jsonl").open()]
@@ -44,15 +32,9 @@ def load():
     y = np.array([r["label"] for r in rows])
     return rows, names, X, y
 
-
 def main():
     rows, all_names, X_all, y = load()
 
-    # Fixing the revoke bug made two columns degenerate: no attempt now occurs
-    # after an explicit revoke, so `revoked_before_attempt` is constant 0 and
-    # `hours_since_revoke` is entirely NaN. HistGradientBoosting cannot bin an
-    # all-NaN column at all. Drop degenerate columns and say which, rather than
-    # quietly editing the feature extractor.
     keep, dropped = [], []
     for i, n in enumerate(all_names):
         col = X_all[:, i]
@@ -93,8 +75,6 @@ def main():
             f"(in-sample acc {metrics['splits'][scheme]['in_sample_accuracy']:.3f})"
         )
 
-    # Training-support envelope for the exception router. The deployed model is the
-    # mandate-split one, so its training rows define what "seen before" means.
     train = np.array([r["split"]["mandate"] == "train" for r in rows])
     Xtr = X[train]
     support = {
@@ -120,7 +100,6 @@ def main():
         pickle.dump({"models": models, "feature_names": names, "params": PARAMS}, fh)
     (DATA / "metrics.json").write_text(json.dumps(metrics, indent=2) + "\n")
     print(f"[train] wrote data/model.pkl ({len(models)} models) and data/metrics.json")
-
 
 if __name__ == "__main__":
     main()

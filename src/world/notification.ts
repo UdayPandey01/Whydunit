@@ -12,8 +12,6 @@ export function isBankOutage(bank: string, ms: number): boolean {
   return OUTAGES.some((o) => o.bank === bank && ms >= o.start && ms < o.end);
 }
 
-// C2's hidden half. The merchant knows it dispatched; whether the bank actually
-// put the notification in front of the customer is not visible to it.
 export function wasDeliveredByBank(bank: string, dispatchMs: number, rng: Rng): boolean {
   const p = isBankOutage(bank, dispatchMs)
     ? OUTAGE_DELIVERY_RATE

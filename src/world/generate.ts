@@ -83,10 +83,6 @@ function drawMandate(rng: Rng, c: Customer, i: number, endMs: number): Mandate {
   };
 }
 
-// The merchant's scheduler. Mostly sane, occasionally naive -- WINDOW_HIT_RATE is
-// what actually sets C1's base rate. Drawn per attempt, not per mandate: a fixed
-// per-mandate hour would make C1 repeat forever for the same mandate and become
-// indistinguishable from C4 under the invariance test.
 function drawAttemptHour(rng: Rng): number {
   if (bernoulli(rng, WINDOW_HIT_RATE)) {
     return RESTRICTED_HOURS[int(rng, 0, RESTRICTED_HOURS.length - 1)]!;
@@ -102,9 +98,6 @@ function errorCodeFor(cause: Cause, m: Mandate, rng: Rng): string {
   return weighted(rng, ERROR_CODE_WEIGHTS[key]!);
 }
 
-// Phase 2 needs the drawn population to replay counterfactual retries against the
-// same four processes. Exposed as a separate entry point so the RNG stream -- and
-// therefore every byte of Phase 1 output -- is untouched.
 export type World = {
   records: WorldRecord[];
   customers: Map<string, Customer>;
@@ -121,8 +114,7 @@ export function generateWorldFull(opts: GenerateOptions = {}): World {
   const horizonDays = opts.horizonDays ?? HORIZON_DAYS;
   const endMs = START_MS + horizonDays * DAY_MS;
   const rng = makeRng(seed);
-  // Decline codes are a reporting artifact, not a world process. Giving them
-  // their own stream means retuning the code table cannot perturb who churned.
+
   const codeRng = makeRng(seed ^ 0x9e3779b9);
 
   const records: WorldRecord[] = [];
@@ -147,11 +139,6 @@ export function generateWorldFull(opts: GenerateOptions = {}): World {
       const ts = istMs(year, month, day, hour, minute);
       if (ts < START_MS || ts >= endMs || ts <= mandate.created_at) continue;
 
-      // An explicit mandate.revoked kills the mandate at the PSP: the merchant is
-      // told, and no further debit is ever presented. Generating attempts after it
-      // invented failures that cannot happen, inflating C4 and dragging every
-      // recovery rate down. Silent churn is deliberately untouched -- those
-      // mandates keep being debited and keep failing, which is the hard case.
       if (mandate.churned_at !== null && mandate.churn_emits_event && ts >= mandate.churned_at) continue;
 
       const leadHours = bernoulli(rng, LATE_DISPATCH_RATE)
@@ -160,16 +147,9 @@ export function generateWorldFull(opts: GenerateOptions = {}): World {
       const dispatchMs = ts - leadHours * HOUR_MS;
       const delivered = wasDeliveredByBank(customer.bank, dispatchMs, rng);
 
-      // Via the shared helper, not a literal: the generator and the counterfactual
-      // replay must agree on what "restricted" means, or C1 in the world and C1 in
-      // the adjudicator would drift apart the moment the config changed.
       const restricted = isRestrictedTime(ts);
       const { balance, days_since_salary } = balanceAt(customer, ts);
 
-      // Every process is asked; we do not short-circuit, because multi_cause
-      // needs to know who else would have blocked. Push order IS precedence:
-      // churn (mandate already dead) -> notification (fails before presentment)
-      // -> window (rejected at presentment) -> balance (declined at the bank).
       const blockers: Cause[] = [];
       if (mandate.churned_at !== null && ts >= mandate.churned_at) blockers.push("C4_CANCELLATION");
       if (leadHours < NOTIFY_MIN_LEAD_HOURS || !delivered) blockers.push("C2_NOTIFICATION_FAIL");

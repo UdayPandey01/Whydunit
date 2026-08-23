@@ -73,8 +73,6 @@ function summarise(world: WorldRecord[], observations: ReturnType<typeof observe
 
   const multi = fails.filter((f) => f.multi_cause);
 
-  // Sanity check on the one place cause information reaches an observable: if any
-  // decline code were ~100% pure the classifier would be a lookup table.
   const byCode = new Map<string, Map<string, number>>();
   for (const f of fails) {
     const m = byCode.get(f.error_code!) ?? new Map<string, number>();
@@ -122,8 +120,6 @@ function buildFeatures(): void {
   const observations = readJsonl<ObservedAttempt>("data/observations.jsonl");
   const world = readJsonl<WorldRecord>("data/world.jsonl");
 
-  // computeFeatures never sees the world. The label is joined on afterwards, here,
-  // so there is exactly one line in the codebase where truth meets the feature row.
   const labels = new Map(world.map((w) => [w.attempt_id, w.cause]));
   const explicitChurn = new Map(world.map((w) => [w.attempt_id, w.world.churn_emits_event]));
   const multi = new Map(world.map((w) => [w.attempt_id, w.multi_cause]));
@@ -138,7 +134,7 @@ function buildFeatures(): void {
       day_index: r.day_index,
       timestamp: r.timestamp,
       label,
-      // Carried for diagnostics only; eval must never train on these.
+
       diag_explicit_churn: explicitChurn.get(r.attempt_id) === true,
       diag_multi_cause: multi.get(r.attempt_id) === true,
       split: assignSplits(r),
@@ -213,8 +209,6 @@ function runPolicies(): void {
   ui.note(`stop rule: P(C4) ≥ ${threshold.toFixed(3)}  ·  cost ratio ${ratio}:1`);
   ui.note(dim("a wrongful stop forfeits a mandate; a wrongful retry costs one retry"));
 
-  // Show the curve, not just the chosen point: the sweep is the evidence that the
-  // operating point was picked rather than tuned until it looked good.
   const sweep: { threshold: number; rate: number; amount: number; retries: number; stopped: number; net?: number }[] = [];
   for (let t = 0.5; t <= 0.9501; t += 0.05) {
     const th = Math.round(t * 100) / 100;
@@ -228,10 +222,7 @@ function runPolicies(): void {
       stopped: out.filter((r) => r.retries_spent === 0).length,
     });
   }
-  // Recovery alone rises monotonically with the threshold, so "pick the maximum"
-  // is a corner, not a choice. Net value prices the retries it costs, using the
-  // same cost matrix that produced the threshold: one retry is COST_WRONGFUL_RETRY
-  // of a mandate.
+
   const retryCost = COST_WRONGFUL_RETRY * (totalAmount / failures.length);
   for (const r of sweep) r.net = r.amount - r.retries * retryCost;
   const best = [...sweep].sort((a, b) => (b.net ?? 0) - (a.net ?? 0))[0]!;
@@ -251,8 +242,6 @@ function runPolicies(): void {
   ui.note(`net = ₹ recovered − retries × ${ui.money(retryCost)} per retry`);
   ui.note(`sweep peaks at ${best.threshold.toFixed(2)}; cost model selects ${threshold.toFixed(3)}`);
 
-  // The amount-aware rule has one free parameter — what a retry costs in rupees —
-  // so it gets the same visible sweep the flat threshold does.
   const evSweep: { retryCost: number; rate: number; amount: number; retries: number }[] = [];
   for (const rc of [5, 10, 20, 33, 50, 80, 120, 200]) {
     const sched = schedulesFor(probabilities, rulePredictions, threshold, rc).model_ev!;
@@ -269,7 +258,7 @@ function runPolicies(): void {
     evSweep.map((e) => {
       const chosen = e.retryCost === COST_RETRY_RUPEES;
       const tone = chosen ? key : dim;
-      // The mandate value at which this retry cost puts the threshold at 0.95.
+
       const breakeven = Math.round((0.95 * e.retryCost) / 0.05);
       return [
         tone(ui.money(e.retryCost)),
@@ -307,15 +296,12 @@ function runPolicies(): void {
     tableRows, ["l", "r", "l", "r"]);
   ui.note("recovered = share of at-risk rupees; retries = per failed payment");
 
-  // The whole point of asking for CIs: say plainly whether the model is
-  // distinguishable from the thing it is supposed to beat.
   const deltas: Record<string, { delta: number; ci: [number, number] }> = {};
   const retryDeltas: Record<string, { delta: number; ci: [number, number] }> = {};
   const deltaRows: string[][] = [];
   for (const rival of ["naive_retry", "window_aware_retry", "rule_policy", "oracle_policy"]) {
     const d = pairedDeltaCI(outcomes.model_policy!, outcomes[rival]!, rupeeRate);
-    // Retries are the other half of the question: matching on money while
-    // spending less is a real win, and it needs an interval like anything else.
+
     const rd = pairedDeltaCI(outcomes.model_policy!, outcomes[rival]!, retriesPer);
     deltas[rival] = d;
     retryDeltas[rival] = rd;
@@ -344,9 +330,6 @@ function runPolicies(): void {
       ];
     }), ["l", "r", "l", "l"]);
 
-  // Isolate the threshold change: same predictor, same actions, flat vs
-  // amount-weighted. Applied to the rule as well, because amount-weighting is a
-  // policy change that any predictor gets.
   const evRows: string[][] = [];
   for (const [ev, flat] of [
     ["model_ev", "model_policy"],
@@ -369,9 +352,6 @@ function runPolicies(): void {
   ui.table(["Variant", "Δ ₹", "95% CI", "Δ retries", "95% CI"], evRows, ["l", "r", "l", "r", "l"]);
   ui.note("baseline is the flat-threshold policy of the same predictor");
 
-  // Both EV variants trade money for retries. Whether that trade is worth taking
-  // depends on one number the merchant owns: what a retry actually costs. Solve
-  // for it rather than assert an answer.
   ui.blank();
   for (const ev of ["model_ev", "model_ev_budget"] as const) {
     const dMoney = rupeeRate(outcomes[ev]!) - rupeeRate(outcomes.model_policy!);
@@ -391,10 +371,8 @@ function runPolicies(): void {
   }
   ui.note(`assumed retry cost is ${ui.money(COST_RETRY_RUPEES)} — set WHYDUNIT_RETRY_COST to your own`);
 
-  // Where does the recovery actually come from? Split by TRUE cause.
   const causeOf = new Map(failures.map((f) => [f.attempt_id, f.cause!]));
-  // churned_at is a MANDATE property, so it is also set on attempts that failed
-  // for another reason before the cancellation. Scope by the attempt's own cause.
+
   const silent = new Set(
     failures
       .filter((f) => f.cause === "C4_CANCELLATION" && !f.world.churn_emits_event)
@@ -459,7 +437,7 @@ async function runAgentCommand(): Promise<void> {
         notification_dispatch_at: Date.parse(o.notification.dispatched_at),
         revoked_at: revoke === undefined ? null : Date.parse(revoke.timestamp),
         cause: p === undefined ? null : p.predicted,
-        // Confidence is the model's own probability for the class it chose.
+
         confidence: p === undefined ? 0 : Math.max(...Object.values(p.proba)),
         proba: p === undefined ? null : (p.proba as Record<Cause, number>),
         routed_to_exception_queue: routed.has(r.attempt_id),
@@ -496,8 +474,6 @@ async function runAgentCommand(): Promise<void> {
       return [tone(CYCLE_LABEL[k] ?? k), tone(v.toLocaleString("en-IN")), ui.bar(v / s.audit_rows, 12, tone)];
     }), ["l", "r", "l"]);
 
-  // Priced here rather than inside the agent: the agent no longer holds the world,
-  // and a live PSP would not tell it what a mandate is worth.
   const amounts = new Map(records.map((w) => [w.mandate_id, w.amount]));
   const db = new Database(dbPath, { readonly: true });
   const recovered = (db.prepare("SELECT mandate_id FROM audit_log WHERE outcome='recovered'").all() as { mandate_id: string }[])
@@ -556,7 +532,6 @@ async function runReport(): Promise<void> {
   void renderAttribution;
 }
 
-/** Shared by report, digest and demo so one table style is used everywhere. */
 function renderCauseTable(report: Report): void {
   const rows: string[][] = [];
   for (const cause of ["C1_EXECUTION_WINDOW", "C2_NOTIFICATION_FAIL", "C3_BALANCE_SHORTFALL", "C4_CANCELLATION"] as Cause[]) {
@@ -590,13 +565,6 @@ function renderQueueTable(report: Report): void {
   ui.note("a payment can be flagged for more than one reason");
 }
 
-/**
- * The merchant-facing summary of a FINISHED cycle. Split out from `report`
- * because the digest reports the agent's outcomes and the agent cannot run until
- * `report` has produced the exception queue -- so one command could not honestly
- * do both. It refuses to run rather than quietly omitting recovery, which is how
- * the earlier version came to print a previous cycle's figures. See INCIDENTS #6.
- */
 async function runDigest(): Promise<void> {
   const DP = "[digest]";
   if (!existsSync("data/report.json")) throw new Error("data/report.json missing -- run `npm run report` first");
@@ -626,8 +594,6 @@ async function runDigest(): Promise<void> {
     return;
   }
 
-  // Everything above is already final. Nothing below changes a number, and its
-  // output goes to its own files that no other module reads.
   const world = new Map(readJsonl<WorldRecord>("data/world.jsonl").map((w) => [w.attempt_id, w]));
   const rows = new Map(readJsonl<FeatureFile>("data/features.jsonl").map((r) => [r.attempt_id, r]));
   const routed = new Set(report.exceptions.map((e) => e.attempt_id));
@@ -680,8 +646,6 @@ function readAgentOutcomes() {
   return { tally, action, result, cause };
 }
 
-
-/** Reads finished artifacts and renders them. Computes no result of its own. */
 function renderHealthPanel(report: Report): void {
   ui.rule("PAYMENT HEALTH");
   ui.kv([
@@ -747,8 +711,7 @@ function renderRevenueHero(report: Report, policy: PolicyFile, recoveredAmount: 
 }
 
 function recoveredAmountFrom(db: Database.Database): number {
-  // Same join the agent already prints: audit rows marked recovered, priced at the
-  // mandate's amount. Re-read here for display; nothing new is computed.
+
   const amounts = new Map<string, number>();
   for (const w of readJsonl<WorldRecord>("data/world.jsonl")) amounts.set(w.mandate_id, w.amount);
   const rows = db.prepare("SELECT mandate_id FROM audit_log WHERE outcome='recovered'").all() as { mandate_id: string }[];
@@ -820,11 +783,6 @@ type ExceptionFile = {
   resolving_evidence: string[];
 };
 
-/**
- * The single-case drill-down: one mandate, end to end, in the order a human
- * actually reasons about it. Ground truth is read last and labelled, so the
- * screen shows what the system knew before it shows whether it was right.
- */
 function runExplainCase(): void {
   const id = process.argv[3];
   if (id === undefined) throw new Error("usage: node src/cli.ts explain <mandate_id>");
@@ -843,8 +801,6 @@ function runExplainCase(): void {
     ? new Map(readJsonl<ExceptionFile>("data/exceptions.jsonl").map((e) => [e.attempt_id, e]))
     : new Map<string, ExceptionFile>();
 
-  // The subject: the last failed attempt, which is the one with the most history
-  // behind it and therefore the most to say.
   const failures = attempts.filter((a) => !a.success);
   if (failures.length === 0) throw new Error(`mandate ${id} never failed; nothing to attribute`);
   const subject = failures[failures.length - 1]!;
@@ -856,7 +812,6 @@ function runExplainCase(): void {
   ui.line("  " + ui.head(`MANDATE ${id}`) + dim(`  ·  ${subject.bank}  ·  ${ui.money(subject.amount)} monthly`));
   ui.line(dim("─".repeat(ui.W)));
 
-  // ---- 1. what was observable ----
   ui.rule("1 · WHAT THE MERCHANT COULD SEE");
   const outcomes = attempts.map((a) => (a.success ? good("●") : bad("×"))).join(" ");
   ui.kv([
@@ -878,7 +833,6 @@ function runExplainCase(): void {
     "the true cause, and whether more than one cause applied",
   ]) ui.line("  " + bad("×") + " " + dim(h));
 
-  // ---- 2. the invariance test ----
   ui.rule("2 · INVARIANCE TEST — what does the failure move with?");
   const f = feat?.features ?? {};
   const failHours = failures.map((a) => Number(a.timestamp.slice(11, 13)));
@@ -890,8 +844,7 @@ function runExplainCase(): void {
   ui.table(
     ["Dimension", "This mandate", "", "Reads as"],
     [
-      // C1 is a property of THIS attempt's clock position, not of the spread
-      // across the mandate's history. Test the subject first, then the spread.
+
       ["Hour of day", `${String(Number(subject.timestamp.slice(11, 13))).padStart(2, "0")} ${dim("· all: " + failHours.map((h) => String(h).padStart(2, "0")).join(" "))}`,
         f.in_restricted_window === 1 ? warn("in window") : varies(distinctHours > 1),
         f.in_restricted_window === 1 ? key("C1 — inside 10:00-13:00")
@@ -903,9 +856,7 @@ function runExplainCase(): void {
         varies(distinctDays > 1),
         Number(f.day_of_month ?? 0) >= 20 ? key("C3 — late in cycle")
           : dim("early cycle — funds likely")],
-      // C4's signature is the CONSECUTIVE run since the customer stopped, not the
-      // lifetime success rate: a mandate that worked for months and then never
-      // again is exactly what silent churn looks like.
+
       ["Recent run", `${f.consecutive_prior_failures ?? 0} in a row / ${f.prior_distinct_fail_hours ?? 0} hours`,
         varies(Number(f.consecutive_prior_failures ?? 0) < 2),
         Number(f.consecutive_prior_failures ?? 0) >= 2 && Number(f.prior_distinct_fail_hours ?? 0) > 1
@@ -917,7 +868,6 @@ function runExplainCase(): void {
   const lifetime = attempts.filter((a) => a.success).length;
   ui.note(`outcome over time  ${attempts.map((a) => (a.success ? "▁" : "█")).join("")}   ${dim(`█ = failed · ${lifetime}/${attempts.length} ever succeeded`)}`);
 
-  // ---- 3 & 4. hypotheses and attribution ----
   ui.rule("3 · COMPETING HYPOTHESES");
   if (pred !== undefined) {
     const ranked = (Object.entries(pred.proba) as [Cause, number][]).sort((a, b) => b[1] - a[1]);
@@ -950,7 +900,6 @@ function runExplainCase(): void {
     ]);
   }
 
-  // ---- 5 & 6. action, constraints, outcome ----
   if (existsSync("data/agent.db")) {
     const db = new Database("data/agent.db", { readonly: true });
     const audit = db.prepare("SELECT * FROM audit_log WHERE mandate_id = ? ORDER BY cycle, attempt_no").all(id) as {
@@ -980,7 +929,6 @@ function runExplainCase(): void {
     }
   }
 
-  // ---- 7. ground truth, last and labelled ----
   ui.rule("7 · GROUND TRUTH — evaluation only, never visible to the system");
   const truth = readJsonl<WorldRecord>("data/world.jsonl").find((w) => w.attempt_id === subject.attempt_id);
   if (truth === undefined) {
@@ -1019,7 +967,6 @@ function sha(path: string): string {
   return createHash("sha256").update(readFileSync(path)).digest("hex");
 }
 
-/** Scalars a human can read when a hash moves, so a failure says WHAT changed. */
 function headlineOf(): Record<string, number> {
   const report = JSON.parse(readFileSync("data/report.json", "utf8")) as Report;
   const policy = JSON.parse(readFileSync("data/policy.json", "utf8")) as {
@@ -1058,11 +1005,6 @@ function buildManifest(): Manifest {
   };
 }
 
-/**
- * Reproducibility proof. Regenerates the seeded world in-process, then compares
- * every committed artifact hash and every headline scalar against the manifest.
- * Exits non-zero on any mismatch so CI can gate on it.
- */
 function runVerify(): void {
   const MANIFEST = "reference/manifest.json";
   if (process.argv.includes("--update")) {
@@ -1073,9 +1015,7 @@ function runVerify(): void {
     return;
   }
   if (!existsSync(MANIFEST)) throw new Error(`${MANIFEST} missing -- run \`npm run verify -- --update\` first`);
-  // Without --full this checks that the committed artifacts are self-consistent
-  // and that the seeded world still reproduces. --full re-runs every stage first,
-  // which is the only way to catch a change in the Python side of the pipeline.
+
   if (process.argv.includes("--full")) {
     const done = ui.progress("re-running the full pipeline");
     execSync("npm run all", { stdio: "ignore" });
@@ -1100,7 +1040,6 @@ function runVerify(): void {
     }
   }
 
-  // Step 1: the seeded world is rebuilt from scratch, not read from disk.
   const doneGen = ui.progress("regenerating world from seed");
   const world = generateWorld();
   const observations = observe(world);
@@ -1113,11 +1052,6 @@ function runVerify(): void {
   ui.line(`  ${sameWorld ? ui.OK : ui.FAIL} ${sameWorld ? "world matches the committed data byte for byte" : bad("regenerated world differs from data/world.jsonl")}`);
   void observations;
 
-  // Step 1b: artifacts must be PORTABLE, not merely deterministic. Raw float64
-  // repr differs in the last bit between BLAS backends, so an x86 CI runner
-  // produced a different predictions.jsonl from an arm64 dev machine with every
-  // class and every metric identical. Catch the cause here rather than reporting
-  // an opaque hash mismatch. See DESIGN.md §12.
   const unrounded: string[] = [];
   for (const line of readFileSync("data/predictions.jsonl", "utf8").trim().split("\n")) {
     const row = JSON.parse(line) as { attempt_id: string; proba: Record<string, number> };
@@ -1133,7 +1067,6 @@ function runVerify(): void {
     ui.line(`  ${ui.OK} probabilities are rounded at the serialization boundary (portable)`);
   }
 
-  // Step 2: every committed artifact hash.
   const rows: string[][] = [];
   for (const f of VERIFIED) {
     const expected = want.artifacts[f];
@@ -1149,7 +1082,6 @@ function runVerify(): void {
   }
   ui.table(["Artifact", "Hash", "sha256"], rows, ["l", "l", "l"]);
 
-  // Step 3: headline scalars, so a failure names the number that moved.
   const now = headlineOf();
   const moved: string[][] = [];
   for (const [k, v] of Object.entries(want.headline)) {

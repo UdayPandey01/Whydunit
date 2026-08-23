@@ -1,15 +1,6 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
 
-/**
- * Scroll-scrubbed video with a graceful floor.
- *
- * If `src` resolves, the clip is scrubbed by scroll position through the
- * section — no autoplay, no audio, the viewer drives it. If the file is absent
- * or the browser will not seek it (mobile Safari is unreliable here), the SVG
- * children remain and animate on their own. The page is complete without any
- * video file, which is why the fallback is the child rather than a poster.
- */
 export function VideoBeat({
   src, children, className = "",
 }: { src: string; children: React.ReactNode; className?: string }) {
