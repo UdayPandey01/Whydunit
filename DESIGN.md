@@ -164,16 +164,8 @@ and the merchant report — but not, on this evidence, in the retry decision.
 Naive retry still recovers **0.0%** of execution-window failures: T+24/72/168h all
 preserve the hour and land back inside the NPCI window.
 
-## 6. Not built yet
 
-- **P5** — hardening, README, video.
-- The Claude layer is written and unit-tested against an adversarial stub but has
-  **never been run against the live API** — no credentials in this environment.
-- An intervention is budgeted to the cycle of the failure it answers but may be
-  scheduled into the next calendar month; collision with that month's own debit is
-  unhandled.
-
-## 7. Presentation and verification
+## 6. Presentation and verification
 
 `render.ts` (143 lines) and `copy.ts` are display only. Tables size their own
 columns, so the width arithmetic that used to tear box frames cannot occur.
@@ -195,7 +187,7 @@ different horizon both exit 1.
 `demo` and `explain` are views — they read finished artifacts and run no pipeline
 stage. Python eval output is untouched: it is the methodology report.
 
-## 8. The integration seam (Phase 5)
+## 7. The integration seam (Phase 5)
 
 **One port.** `PspClient` has four methods; the agent knows nothing else about the
 outside world. `SimulatedPsp` wraps the seeded world, `RazorpayPsp` wraps the real
@@ -235,7 +227,7 @@ credentials; none were available. Auth, retry, signature verification and event
 mapping are unit-tested against fixtures, not against a live key. Only C3 is
 inducible in test mode — README has the full gap table.
 
-## 9. How to run
+## 8. How to run
 
 ```bash
 npm install
@@ -255,7 +247,7 @@ npm run digest -- --explain   # adds Claude prose; needs ANTHROPIC_API_KEY.
                               # Without it the pipeline runs identically, minus prose.
 ```
 
-## 10. Reproducibility and packaging
+## 9. Reproducibility and packaging
 
 `docker compose up` runs the whole pipeline in one image: Node 24.19.0 for the
 TypeScript stages, Python 3.11 with an exact `requirements.txt` for training and
@@ -275,7 +267,7 @@ would have disagreed about C1 the moment `RESTRICTED_START_HOUR` changed. Fixed;
 `Math.random` anywhere in `src/`, and no `Date.now()` in the world, agent or PSP —
 simulated time and wall-clock time do not mix.
 
-## 11. Expected-value recovery: what was tried and what was kept
+## 10. Expected-value recovery: what was tried and what was kept
 
 The Phase 4A stop rule prices one trade — a wrongful stop forfeits a mandate, a
 wrongful retry costs a retry — as a fleet-wide **ratio**, giving every mandate the
@@ -326,7 +318,7 @@ individually profitable — merely lower-yield. Cutting them, which is exactly w
 EV budget does, destroys more value than it saves. Lower-yield is not unprofitable,
 and the only thing that distinguishes them is the retry cost.
 
-## 12. Portable, not merely deterministic
+## 11. Portable, not merely deterministic
 
 `verify` passed on the arm64 dev machine and would have failed on the x86 CI
 runner. The pipeline was deterministic on each platform and disagreed between

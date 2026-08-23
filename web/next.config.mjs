@@ -3,4 +3,5 @@ export default {
 
   output: "export",
   images: { unoptimized: true },
+  outputFileTracingRoot: import.meta.dirname,
 };

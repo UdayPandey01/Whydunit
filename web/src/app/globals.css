@@ -195,3 +195,6 @@ td.n{text-align:right;font-variant-numeric:tabular-nums;font-feature-settings:"t
   .replay-row .ot{grid-column:2;text-align:left}
   .replay-ft .verdict{text-align:left}
 }
+
+.pull{margin-top:26px;padding-left:18px;border-left:2px solid var(--gold-dim);
+  color:var(--ink-2);font-size:clamp(15px,1.7vw,17px);max-width:56ch;line-height:1.6}

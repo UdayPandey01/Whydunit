@@ -21,7 +21,7 @@ const ACTION: Record<string, string> = {
 export function Replay({ rows, amount, mandate, bank }:
   { rows: Row[]; amount: number; mandate: string; bank: string }) {
   const ref = useRef<HTMLDivElement>(null);
-  const [live, setLive] = useState(-1);
+  const [live, setLive] = useState(0);
 
   useEffect(() => {
     const el = ref.current;

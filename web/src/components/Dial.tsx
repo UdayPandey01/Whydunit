@@ -2,10 +2,11 @@
 import { useEffect, useRef, useState } from "react";
 
 const CX = 200, CY = 200, R = 150;
-const ang = (h: number) => (h / 24) * 360;
+const round3 = (v: number) => Math.round(v * 1000) / 1000;
+const ang = (h: number) => round3((h / 24) * 360);
 const pt = (a: number, r: number) => [
-  CX + r * Math.sin((a * Math.PI) / 180),
-  CY - r * Math.cos((a * Math.PI) / 180),
+  round3(CX + r * Math.sin((a * Math.PI) / 180)),
+  round3(CY - r * Math.cos((a * Math.PI) / 180)),
 ];
 
 export function Dial({ failHour, fixHour }: { failHour: number; fixHour: number }) {

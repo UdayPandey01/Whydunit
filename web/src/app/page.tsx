@@ -27,17 +27,27 @@ export default function Home() {
 
       <section style={{ paddingTop: "clamp(72px,14vh,150px)" }}>
         <div className="wrap narrow">
-          <Reveal><p className="eyebrow">Razorpay AI Buildathon · Track 03</p></Reveal>
+          <Reveal>
+            <p className="eyebrow">WhyDunit · UPI AutoPay revenue recovery</p>
+          </Reveal>
           <Reveal delay={70}>
-            <h1 style={{ margin: "22px 0 26px" }}>
-              A third of what merchants write off as churn <span className="gold">was never the customer.</span>
+            <h1 style={{ margin: "20px 0 24px" }}>
+              Know <span className="gold">why</span> the debit failed.<br />Then fix only that.
             </h1>
           </Reveal>
           <Reveal delay={140}>
             <p className="lede">
-              It was a debit presented inside a window NPCI blocks. A pre-debit notice that never
-              landed. A salary three days late. Retrying those on a timer recovers a third of the
-              money and burns the rest on people who already left.
+              WhyDunit attributes every failed UPI AutoPay debit to one of four causes —
+              execution window, notification failure, balance shortfall, or cancellation —
+              and executes a bounded recovery action matched to that cause. When the cause
+              is cancellation, it stops instead of spending.
+            </p>
+          </Reveal>
+          <Reveal delay={200}>
+            <p className="pull">
+              A third of what merchants write off as churn was never the customer. Retrying
+              those on a timer recovers a third of the money and burns the rest on people
+              who already left.
             </p>
           </Reveal>
           <Reveal delay={210}>
