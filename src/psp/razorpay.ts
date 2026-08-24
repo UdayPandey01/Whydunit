@@ -1,6 +1,6 @@
-import Razorpay from "razorpay";
-import { FAILED, OK } from "./types.ts";
-import type { Observation, PspClient, Result } from "./types.ts";
+import Razorpay from 'razorpay';
+import { FAILED, OK } from './types.ts';
+import type { Observation, PspClient, Result } from './types.ts';
 
 export type RazorpayOptions = {
   keyId: string;
@@ -11,14 +11,18 @@ export type RazorpayOptions = {
 };
 
 export class RazorpayPsp implements PspClient {
-  readonly name = "razorpay-test";
+  readonly name = 'razorpay-test';
   private readonly client: Razorpay;
   private readonly subscriptions: Map<string, string>;
   private readonly maxRetries: number;
 
   constructor(opts: RazorpayOptions) {
-    if (!opts.keyId || !opts.keySecret) throw new Error("RazorpayPsp needs keyId and keySecret");
-    this.client = new Razorpay({ key_id: opts.keyId, key_secret: opts.keySecret });
+    if (!opts.keyId || !opts.keySecret)
+      throw new Error('RazorpayPsp needs keyId and keySecret');
+    this.client = new Razorpay({
+      key_id: opts.keyId,
+      key_secret: opts.keySecret,
+    });
     this.subscriptions = opts.subscriptions ?? new Map();
     this.maxRetries = opts.maxRetries ?? 3;
   }
@@ -39,36 +43,55 @@ export class RazorpayPsp implements PspClient {
   }
 
   async fetchFailedDebits(since: Date): Promise<Observation[]> {
-
     const from = Math.floor(since.getTime() / 1000);
-    const page = await this.call("payments.all", () =>
+    const page = await this.call('payments.all', () =>
       this.client.payments.all({ from, count: 100 }),
     );
     const items = (page as { items?: unknown[] }).items ?? [];
     return items
-      .filter((p) => (p as { status?: string }).status === "failed")
-      .map((p) => observationFromPayment(p as RazorpayPayment, this.subscriptions));
+      .filter((p) => (p as { status?: string }).status === 'failed')
+      .map((p) =>
+        observationFromPayment(p as RazorpayPayment, this.subscriptions),
+      );
   }
 
-  async scheduleDebit(mandateId: string, at: Date, idempotencyKey: string): Promise<Result> {
+  async scheduleDebit(
+    mandateId: string,
+    at: Date,
+    idempotencyKey: string,
+  ): Promise<Result> {
     const subscriptionId = this.subscriptions.get(mandateId);
-    if (subscriptionId === undefined) return FAILED("mandate_not_found", `no subscription for ${mandateId}`);
+    if (subscriptionId === undefined)
+      return FAILED('mandate_not_found', `no subscription for ${mandateId}`);
 
     void at;
-    const sub = await this.call("subscriptions.fetch", () => this.client.subscriptions.fetch(subscriptionId));
-    return OK((sub as { id?: string }).id ?? idempotencyKey, "pending");
+    const sub = await this.call('subscriptions.fetch', () =>
+      this.client.subscriptions.fetch(subscriptionId),
+    );
+    return OK((sub as { id?: string }).id ?? idempotencyKey, 'pending');
   }
 
-  async sendPreDebitNotification(mandateId: string, idempotencyKey: string): Promise<Result> {
-
+  async sendPreDebitNotification(
+    mandateId: string,
+    idempotencyKey: string,
+  ): Promise<Result> {
     void mandateId;
-    return FAILED("unsupported", `pre-debit notification is not merchant-triggerable (${idempotencyKey})`);
+    return FAILED(
+      'unsupported',
+      `pre-debit notification is not merchant-triggerable (${idempotencyKey})`,
+    );
   }
 
-  async cancelMandate(mandateId: string, idempotencyKey: string): Promise<Result> {
+  async cancelMandate(
+    mandateId: string,
+    idempotencyKey: string,
+  ): Promise<Result> {
     const subscriptionId = this.subscriptions.get(mandateId);
-    if (subscriptionId === undefined) return FAILED("mandate_not_found", `no subscription for ${mandateId}`);
-    await this.call("subscriptions.cancel", () => this.client.subscriptions.cancel(subscriptionId, false));
+    if (subscriptionId === undefined)
+      return FAILED('mandate_not_found', `no subscription for ${mandateId}`);
+    await this.call('subscriptions.cancel', () =>
+      this.client.subscriptions.cancel(subscriptionId, false),
+    );
     return OK(idempotencyKey);
   }
 }
@@ -85,23 +108,27 @@ export type RazorpayPayment = {
   subscription_id?: string;
 };
 
-export function observationFromPayment(p: RazorpayPayment, subs: Map<string, string>): Observation {
+export function observationFromPayment(
+  p: RazorpayPayment,
+  subs: Map<string, string>,
+): Observation {
   const mandateId =
-    [...subs.entries()].find(([, sid]) => sid === p.subscription_id)?.[0] ?? p.subscription_id ?? p.id;
+    [...subs.entries()].find(([, sid]) => sid === p.subscription_id)?.[0] ??
+    p.subscription_id ??
+    p.id;
   return {
     attempt_id: p.id,
     mandate_id: mandateId,
     timestamp: new Date(p.created_at * 1000).toISOString(),
-    bank: p.bank ?? "UNKNOWN",
+    bank: p.bank ?? 'UNKNOWN',
     amount: p.amount / 100,
     max_amount: p.amount / 100,
-    frequency: "monthly",
+    frequency: 'monthly',
     mandate_age_days: 0,
     attempt_index: 0,
-    success: p.status === "captured",
+    success: p.status === 'captured',
     error_code: p.error_reason ?? p.error_code ?? null,
     notification: {
-
       dispatched_at: new Date(p.created_at * 1000).toISOString(),
       hours_before_debit: 0,
       receipt: null,

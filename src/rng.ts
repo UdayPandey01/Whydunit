@@ -36,7 +36,10 @@ export function clamp(x: number, lo: number, hi: number): number {
   return Math.min(hi, Math.max(lo, x));
 }
 
-export function weighted<K extends string>(rng: Rng, weights: Record<K, number>): K {
+export function weighted<K extends string>(
+  rng: Rng,
+  weights: Record<K, number>,
+): K {
   const keys = Object.keys(weights) as K[];
   let total = 0;
   for (const k of keys) total += weights[k];

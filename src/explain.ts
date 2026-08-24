@@ -1,11 +1,11 @@
-import Anthropic from "@anthropic-ai/sdk";
-import { createHash } from "node:crypto";
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
-import type { ExceptionRecord } from "./exceptions.ts";
-import type { Report } from "./report.ts";
+import Anthropic from '@anthropic-ai/sdk';
+import { createHash } from 'node:crypto';
+import { existsSync, readFileSync, writeFileSync } from 'node:fs';
+import type { ExceptionRecord } from './exceptions.ts';
+import type { Report } from './report.ts';
 
-const MODEL = "claude-opus-5";
-const CACHE_PATH = "data/explanations-cache.json";
+const MODEL = 'claude-opus-5';
+const CACHE_PATH = 'data/explanations-cache.json';
 
 const SYSTEM = `You write short plain-language notes for a payments operations team about failed UPI AutoPay debits.
 
@@ -24,15 +24,22 @@ export type Explainer = (system: string, prompt: string) => Promise<string>;
 type Cache = Record<string, string>;
 
 function loadCache(): Cache {
-  return existsSync(CACHE_PATH) ? (JSON.parse(readFileSync(CACHE_PATH, "utf8")) as Cache) : {};
+  return existsSync(CACHE_PATH)
+    ? (JSON.parse(readFileSync(CACHE_PATH, 'utf8')) as Cache)
+    : {};
 }
 
 function keyOf(system: string, prompt: string): string {
-  return createHash("sha256").update(`${MODEL}\n${system}\n${prompt}`).digest("hex").slice(0, 32);
+  return createHash('sha256')
+    .update(`${MODEL}\n${system}\n${prompt}`)
+    .digest('hex')
+    .slice(0, 32);
 }
 
 export function hasCredentials(): boolean {
-  return Boolean(process.env.ANTHROPIC_API_KEY ?? process.env.ANTHROPIC_AUTH_TOKEN);
+  return Boolean(
+    process.env.ANTHROPIC_API_KEY ?? process.env.ANTHROPIC_AUTH_TOKEN,
+  );
 }
 
 export function claudeExplainer(): Explainer {
@@ -49,31 +56,33 @@ export function claudeExplainer(): Explainer {
         model: MODEL,
         max_tokens: 4000,
         system,
-        thinking: { type: "adaptive" },
-        output_config: { effort: "low" },
+        thinking: { type: 'adaptive' },
+        output_config: { effort: 'low' },
 
-        betas: ["server-side-fallback-2026-06-01"],
-        fallbacks: [{ model: "claude-opus-4-8" }],
-        messages: [{ role: "user", content: prompt }],
+        betas: ['server-side-fallback-2026-06-01'],
+        fallbacks: [{ model: 'claude-opus-4-8' }],
+        messages: [{ role: 'user', content: prompt }],
       });
 
-      if (response.stop_reason === "refusal") {
-        return `[explanation unavailable: model declined (${response.stop_details?.category ?? "unspecified"})]`;
+      if (response.stop_reason === 'refusal') {
+        return `[explanation unavailable: model declined (${response.stop_details?.category ?? 'unspecified'})]`;
       }
       const text = response.content
-        .filter((b): b is Anthropic.Beta.BetaTextBlock => b.type === "text")
+        .filter((b): b is Anthropic.Beta.BetaTextBlock => b.type === 'text')
         .map((b) => b.text)
-        .join("")
+        .join('')
         .trim();
 
       cache[key] = text;
-      writeFileSync(CACHE_PATH, JSON.stringify(cache, null, 2) + "\n");
+      writeFileSync(CACHE_PATH, JSON.stringify(cache, null, 2) + '\n');
       return text;
     } catch (error) {
-
-      if (error instanceof Anthropic.AuthenticationError) return "[explanation unavailable: authentication failed]";
-      if (error instanceof Anthropic.RateLimitError) return "[explanation unavailable: rate limited]";
-      if (error instanceof Anthropic.APIError) return `[explanation unavailable: API error ${error.status}]`;
+      if (error instanceof Anthropic.AuthenticationError)
+        return '[explanation unavailable: authentication failed]';
+      if (error instanceof Anthropic.RateLimitError)
+        return '[explanation unavailable: rate limited]';
+      if (error instanceof Anthropic.APIError)
+        return `[explanation unavailable: API error ${error.status}]`;
       throw error;
     }
   };
@@ -101,7 +110,7 @@ function attributionPrompt(a: Attribution): string {
     ...a.evidence.map((e) => `  - ${e}`),
     `Action taken: ${a.action_taken}`,
     `Outcome: ${a.outcome}`,
-  ].join("\n");
+  ].join('\n');
 }
 
 function exceptionPrompt(e: ExceptionRecord): string {
@@ -111,12 +120,15 @@ function exceptionPrompt(e: ExceptionRecord): string {
     `This was NOT auto-attributed. It was routed for human review because:`,
     ...e.detail.map((d) => `  - ${d}`),
     `Competing hypotheses:`,
-    ...e.hypotheses.map((h) => `  - ${h.cause} (p=${h.probability}): ${h.evidence.join("; ") || "no direct evidence"}`),
+    ...e.hypotheses.map(
+      (h) =>
+        `  - ${h.cause} (p=${h.probability}): ${h.evidence.join('; ') || 'no direct evidence'}`,
+    ),
     `Evidence that would resolve it:`,
     ...e.resolving_evidence.map((r) => `  - ${r}`),
     ``,
     `Explain to the operations team what is uncertain here and what to go and check. Do not pick a cause.`,
-  ].join("\n");
+  ].join('\n');
 }
 
 export async function explainAttributions(
@@ -125,7 +137,10 @@ export async function explainAttributions(
 ): Promise<{ attempt_id: string; explanation: string }[]> {
   const out: { attempt_id: string; explanation: string }[] = [];
   for (const a of items) {
-    out.push({ attempt_id: a.attempt_id, explanation: await explain(SYSTEM, attributionPrompt(a)) });
+    out.push({
+      attempt_id: a.attempt_id,
+      explanation: await explain(SYSTEM, attributionPrompt(a)),
+    });
   }
   return out;
 }
@@ -136,7 +151,10 @@ export async function explainExceptions(
 ): Promise<{ attempt_id: string; explanation: string }[]> {
   const out: { attempt_id: string; explanation: string }[] = [];
   for (const e of items) {
-    out.push({ attempt_id: e.attempt_id, explanation: await explain(SYSTEM, exceptionPrompt(e)) });
+    out.push({
+      attempt_id: e.attempt_id,
+      explanation: await explain(SYSTEM, exceptionPrompt(e)),
+    });
   }
   return out;
 }
@@ -149,6 +167,6 @@ export async function explainDigest(
   void report;
   return explain(
     DIGEST_SYSTEM,
-    `Here is this cycle's deterministic summary. Every figure is final.\n\n${digestLines.join("\n")}`,
+    `Here is this cycle's deterministic summary. Every figure is final.\n\n${digestLines.join('\n')}`,
   );
 }

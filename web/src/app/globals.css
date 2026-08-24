@@ -106,17 +106,28 @@ section{padding-block:clamp(84px,12vh,148px);position:relative}
 
 .grid4{display:grid;grid-template-columns:repeat(auto-fit,minmax(214px,1fr));gap:12px}
 .tile{background:var(--surface);border:1px solid var(--line);border-radius:11px;padding:17px 18px;
-  transition:opacity .6s var(--ease),filter .6s var(--ease),border-color .6s var(--ease)}
-.tile[data-state="out"]{opacity:.28;filter:saturate(.1)}
-.tile[data-state="keep"]{border-color:var(--gold-dim);
-  box-shadow:0 24px 60px -46px rgba(232,197,106,.6)}
-.tile .tag{font-family:"Martian Mono",monospace;font-size:10px;letter-spacing:.14em;color:var(--ink-3)}
-.tile[data-state="keep"] .tag{color:var(--gold)}
-.tile h3{margin:7px 0 0;font-size:15.5px}
+  transition:border-color .38s var(--ease-soft),background .38s var(--ease-soft),
+    transform .38s var(--ease-soft),box-shadow .38s var(--ease-soft)}
+/* all four tiles read identically at rest. the verdict line carries the outcome in words,
+   so it does not also need to be carried by dimming the tile. */
+.tile .tag{font-family:"Martian Mono",monospace;font-size:10px;letter-spacing:.14em;color:var(--ink-3);
+  transition:color .38s var(--ease-soft)}
+.tile h3{margin:7px 0 0;font-size:15.5px;transition:color .38s var(--ease-soft)}
 .tile p{margin-top:8px;font-size:13px;color:var(--ink-3);line-height:1.5}
 .tile .vd{margin-top:12px;font-size:12px;color:var(--ink-3);font-family:"Martian Mono",monospace;
-  letter-spacing:-.03em}
-.tile[data-state="keep"] .vd{color:var(--gold)}
+  letter-spacing:-.03em;transition:color .38s var(--ease-soft)}
+
+/* gold is the hover state, and every tile can reach it */
+.tile:hover,.tile:focus-within{
+  border-color:var(--gold);background:var(--raised);transform:translateY(-3px);
+  box-shadow:0 24px 60px -46px rgba(232,197,106,.6)}
+.tile:hover h3,.tile:focus-within h3{color:#fff}
+.tile:hover .tag,.tile:focus-within .tag,
+.tile:hover .vd,.tile:focus-within .vd{color:var(--gold)}
+/* touch has no hover: do not leave the tiles looking permanently inert there */
+@media (hover:none){
+  .tile:hover{transform:none;box-shadow:none}
+}
 
 .bars{display:flex;flex-direction:column;gap:2px}
 .bar{display:grid;grid-template-columns:minmax(112px,180px) 1fr 74px;gap:18px;align-items:center;

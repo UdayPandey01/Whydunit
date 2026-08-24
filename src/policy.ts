@@ -1,13 +1,24 @@
-import { COST_RETRY_RUPEES, DEFAULT_COST_RATIO, NOTIFY_MIN_LEAD_HOURS, START_MS, HORIZON_DAYS } from "./config.ts";
-import { decideCause, retryBudgetFor, stopThreshold, stopThresholdFor } from "./decision.ts";
-import { clusterBootstrapCI } from "./bootstrap.ts";
-import { makeRng } from "./rng.ts";
-import { nextMonthDay, SAFE_HOUR, toSafeHour } from "./schedule.ts";
-import { attemptAt } from "./world/replay.ts";
-import type { Notify } from "./world/replay.ts";
-import { DAY_MS, HOUR_MS, istMs, istParts } from "./time.ts";
-import { wasDeliveredByBank } from "./world/notification.ts";
-import type { Cause, Customer, Mandate, WorldRecord } from "./world/types.ts";
+import {
+  COST_RETRY_RUPEES,
+  DEFAULT_COST_RATIO,
+  NOTIFY_MIN_LEAD_HOURS,
+  START_MS,
+  HORIZON_DAYS,
+} from './config.ts';
+import {
+  decideCause,
+  retryBudgetFor,
+  stopThreshold,
+  stopThresholdFor,
+} from './decision.ts';
+import { clusterBootstrapCI } from './bootstrap.ts';
+import { makeRng } from './rng.ts';
+import { nextMonthDay, SAFE_HOUR, toSafeHour } from './schedule.ts';
+import { attemptAt } from './world/replay.ts';
+import type { Notify } from './world/replay.ts';
+import { DAY_MS, HOUR_MS, istMs, istParts } from './time.ts';
+import { wasDeliveredByBank } from './world/notification.ts';
+import type { Cause, Customer, Mandate, WorldRecord } from './world/types.ts';
 
 const POLICY_SEED = 777001;
 const RETRY_BUDGET = 3;
@@ -20,12 +31,15 @@ function naiveSchedule(t: number): Action[] {
 }
 
 function windowAwareSchedule(t: number): Action[] {
-  return [24, 72, 168].map((h) => ({ at: toSafeHour(t + h * HOUR_MS), renotify: false }));
+  return [24, 72, 168].map((h) => ({
+    at: toSafeHour(t + h * HOUR_MS),
+    renotify: false,
+  }));
 }
 
 function modelSchedule(t: number, predicted: Cause): Action[] {
   switch (predicted) {
-    case "C1_EXECUTION_WINDOW": {
+    case 'C1_EXECUTION_WINDOW': {
       const p = istParts(t);
       const sameDay = istMs(p.year, p.month, p.day, SAFE_HOUR, p.minute);
       const first = sameDay > t ? sameDay : toSafeHour(t + 24 * HOUR_MS);
@@ -35,15 +49,18 @@ function modelSchedule(t: number, predicted: Cause): Action[] {
         { at: toSafeHour(first + 72 * HOUR_MS), renotify: false },
       ];
     }
-    case "C2_NOTIFICATION_FAIL":
-      return [26, 50, 96].map((h) => ({ at: toSafeHour(t + h * HOUR_MS), renotify: true }));
-    case "C3_BALANCE_SHORTFALL":
+    case 'C2_NOTIFICATION_FAIL':
+      return [26, 50, 96].map((h) => ({
+        at: toSafeHour(t + h * HOUR_MS),
+        renotify: true,
+      }));
+    case 'C3_BALANCE_SHORTFALL':
       return [
         { at: toSafeHour(t + 72 * HOUR_MS), renotify: false },
         { at: toSafeHour(t + 168 * HOUR_MS), renotify: false },
         { at: nextMonthDay(t, 2), renotify: false },
       ];
-    case "C4_CANCELLATION":
+    case 'C4_CANCELLATION':
       return [];
   }
 }
@@ -76,11 +93,13 @@ export function runPolicy(
     let recovered = false;
     let spent = 0;
     for (const action of schedule(rec).slice(0, RETRY_BUDGET)) {
-
       if (action.at > HORIZON_END_MS || action.at <= t) continue;
       if (action.renotify) {
         const dispatchMs = action.at - (NOTIFY_MIN_LEAD_HOURS + 2) * HOUR_MS;
-        notify = { dispatchMs, delivered: wasDeliveredByBank(rec.bank, dispatchMs, rng) };
+        notify = {
+          dispatchMs,
+          delivered: wasDeliveredByBank(rec.bank, dispatchMs, rng),
+        };
       }
       spent++;
       if (attemptAt(customer, mandate, action.at, notify).success) {
@@ -104,12 +123,11 @@ export function schedulesFor(
   threshold: number = stopThreshold(DEFAULT_COST_RATIO),
   retryCostRupees: number = COST_RETRY_RUPEES,
 ): Record<string, (rec: WorldRecord) => Action[]> {
-
   const ruleProba = (c: Cause): Record<Cause, number> => ({
-    C1_EXECUTION_WINDOW: c === "C1_EXECUTION_WINDOW" ? 1 : 0,
-    C2_NOTIFICATION_FAIL: c === "C2_NOTIFICATION_FAIL" ? 1 : 0,
-    C3_BALANCE_SHORTFALL: c === "C3_BALANCE_SHORTFALL" ? 1 : 0,
-    C4_CANCELLATION: c === "C4_CANCELLATION" ? 1 : 0,
+    C1_EXECUTION_WINDOW: c === 'C1_EXECUTION_WINDOW' ? 1 : 0,
+    C2_NOTIFICATION_FAIL: c === 'C2_NOTIFICATION_FAIL' ? 1 : 0,
+    C3_BALANCE_SHORTFALL: c === 'C3_BALANCE_SHORTFALL' ? 1 : 0,
+    C4_CANCELLATION: c === 'C4_CANCELLATION' ? 1 : 0,
   });
 
   const drive = (
@@ -128,11 +146,18 @@ export function schedulesFor(
 
     model_policy: (r) => drive(r, probabilities.get(r.attempt_id), threshold),
 
-    model_ev: (r) => drive(r, probabilities.get(r.attempt_id), stopThresholdFor(r.amount, retryCostRupees)),
+    model_ev: (r) =>
+      drive(
+        r,
+        probabilities.get(r.attempt_id),
+        stopThresholdFor(r.amount, retryCostRupees),
+      ),
 
     rule_policy: (r) => {
       const p = rulePredictions.get(r.attempt_id);
-      return p === undefined ? naiveSchedule(r.timestamp_ms) : modelSchedule(r.timestamp_ms, p);
+      return p === undefined
+        ? naiveSchedule(r.timestamp_ms)
+        : modelSchedule(r.timestamp_ms, p);
     },
 
     rule_ev: (r) => {
@@ -143,8 +168,15 @@ export function schedulesFor(
     },
 
     model_ev_budget: (r) => {
-      const acts = drive(r, probabilities.get(r.attempt_id), stopThresholdFor(r.amount, retryCostRupees));
-      return acts.slice(0, retryBudgetFor(r.amount, RETRY_BUDGET, retryCostRupees));
+      const acts = drive(
+        r,
+        probabilities.get(r.attempt_id),
+        stopThresholdFor(r.amount, retryCostRupees),
+      );
+      return acts.slice(
+        0,
+        retryBudgetFor(r.amount, RETRY_BUDGET, retryCostRupees),
+      );
     },
 
     window_aware_retry: (r) => windowAwareSchedule(r.timestamp_ms),
@@ -169,7 +201,10 @@ export function pairedDeltaCI(
   n = 1000,
   seed = 4242,
 ): { delta: number; ci: [number, number] } {
-  const byMandate = new Map<string, { a: PolicyOutcome[]; b: PolicyOutcome[] }>();
+  const byMandate = new Map<
+    string,
+    { a: PolicyOutcome[]; b: PolicyOutcome[] }
+  >();
   const bById = new Map(b.map((o) => [o.attempt_id, o]));
   for (const o of a) {
     const e = byMandate.get(o.mandate_id) ?? { a: [], b: [] };
@@ -191,5 +226,8 @@ export function pairedDeltaCI(
     draws.push(metric(sa) - metric(sb));
   }
   draws.sort((x, y) => x - y);
-  return { delta: metric(a) - metric(b), ci: [draws[Math.floor(0.025 * n)]!, draws[Math.floor(0.975 * n)]!] };
+  return {
+    delta: metric(a) - metric(b),
+    ci: [draws[Math.floor(0.025 * n)]!, draws[Math.floor(0.975 * n)]!],
+  };
 }

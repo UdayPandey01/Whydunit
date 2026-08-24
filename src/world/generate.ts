@@ -1,21 +1,64 @@
 import {
-  AMOUNT_WEIGHTS, BANKS, BUFFER_RATIO_MEDIAN, BUFFER_RATIO_SIGMA, CHURN_HAZARD_SIGMA,
-  ERROR_CODE_WEIGHTS, HORIZON_DAYS, INCOME_MEDIAN, INCOME_SIGMA, LATE_DISPATCH_RATE,
-  LATE_LEAD_HOURS_MAX, LATE_LEAD_HOURS_MIN, MAX_AMOUNT_MULTIPLE, N_MANDATES,
-  NOTIFY_LEAD_HOURS_MAX, NOTIFY_LEAD_HOURS_MIN, NOTIFY_MIN_LEAD_HOURS,
-  PREEXISTING_AGE_DAYS_MAX, PREEXISTING_RATE, RESTRICTED_HOURS, SAFE_HOUR_WEIGHTS,
-  SALARY_DAY_WEIGHTS, SALARY_DELAY_MAX_DAYS, SALARY_DELAY_PROB, SEED,
-  SHOCK_FRACTION_MAX, SHOCK_FRACTION_MIN, SHOCK_PROB_PER_MONTH, SPEND_RATIO_MAX,
-  SPEND_RATIO_MEAN, SPEND_RATIO_MIN, SPEND_RATIO_SD, START_MS, WINDOW_HIT_RATE,
-} from "../config.ts";
-import { bernoulli, clamp, int, lognormal, makeRng, normal, uniform, weighted } from "../rng.ts";
-import { isRestrictedTime } from "../schedule.ts";
-import type { Rng } from "../rng.ts";
-import { DAY_MS, HOUR_MS, daysInMonth, istMs, istParts, round, toIso } from "../time.ts";
-import { balanceAt } from "./balance.ts";
-import { drawChurn } from "./churn.ts";
-import { isBankOutage, wasDeliveredByBank } from "./notification.ts";
-import type { Cause, Customer, Mandate, Shock, WorldRecord } from "./types.ts";
+  AMOUNT_WEIGHTS,
+  BANKS,
+  BUFFER_RATIO_MEDIAN,
+  BUFFER_RATIO_SIGMA,
+  CHURN_HAZARD_SIGMA,
+  ERROR_CODE_WEIGHTS,
+  HORIZON_DAYS,
+  INCOME_MEDIAN,
+  INCOME_SIGMA,
+  LATE_DISPATCH_RATE,
+  LATE_LEAD_HOURS_MAX,
+  LATE_LEAD_HOURS_MIN,
+  MAX_AMOUNT_MULTIPLE,
+  N_MANDATES,
+  NOTIFY_LEAD_HOURS_MAX,
+  NOTIFY_LEAD_HOURS_MIN,
+  NOTIFY_MIN_LEAD_HOURS,
+  PREEXISTING_AGE_DAYS_MAX,
+  PREEXISTING_RATE,
+  RESTRICTED_HOURS,
+  SAFE_HOUR_WEIGHTS,
+  SALARY_DAY_WEIGHTS,
+  SALARY_DELAY_MAX_DAYS,
+  SALARY_DELAY_PROB,
+  SEED,
+  SHOCK_FRACTION_MAX,
+  SHOCK_FRACTION_MIN,
+  SHOCK_PROB_PER_MONTH,
+  SPEND_RATIO_MAX,
+  SPEND_RATIO_MEAN,
+  SPEND_RATIO_MIN,
+  SPEND_RATIO_SD,
+  START_MS,
+  WINDOW_HIT_RATE,
+} from '../config.ts';
+import {
+  bernoulli,
+  clamp,
+  int,
+  lognormal,
+  makeRng,
+  normal,
+  uniform,
+  weighted,
+} from '../rng.ts';
+import { isRestrictedTime } from '../schedule.ts';
+import type { Rng } from '../rng.ts';
+import {
+  DAY_MS,
+  HOUR_MS,
+  daysInMonth,
+  istMs,
+  istParts,
+  round,
+  toIso,
+} from '../time.ts';
+import { balanceAt } from './balance.ts';
+import { drawChurn } from './churn.ts';
+import { isBankOutage, wasDeliveredByBank } from './notification.ts';
+import type { Cause, Customer, Mandate, Shock, WorldRecord } from './types.ts';
 
 export type GenerateOptions = {
   seed?: number;
@@ -32,13 +75,33 @@ function drawCustomer(rng: Rng, i: number): Customer {
 
   const salary_delays: number[] = [];
   for (let m = 0; m < MONTHS_SPANNED; m++) {
-    salary_delays.push(bernoulli(rng, SALARY_DELAY_PROB) ? int(rng, 1, SALARY_DELAY_MAX_DAYS) : 0);
+    salary_delays.push(
+      bernoulli(rng, SALARY_DELAY_PROB)
+        ? int(rng, 1, SALARY_DELAY_MAX_DAYS)
+        : 0,
+    );
   }
-  const income = round(clamp(lognormal(rng, INCOME_MEDIAN, INCOME_SIGMA), 9000, 600000), 2);
-  const spend_ratio = round(
-    clamp(normal(rng, SPEND_RATIO_MEAN, SPEND_RATIO_SD), SPEND_RATIO_MIN, SPEND_RATIO_MAX), 4,
+  const income = round(
+    clamp(lognormal(rng, INCOME_MEDIAN, INCOME_SIGMA), 9000, 600000),
+    2,
   );
-  const buffer = round(income * clamp(lognormal(rng, BUFFER_RATIO_MEDIAN, BUFFER_RATIO_SIGMA), 0.002, 0.8), 2);
+  const spend_ratio = round(
+    clamp(
+      normal(rng, SPEND_RATIO_MEAN, SPEND_RATIO_SD),
+      SPEND_RATIO_MIN,
+      SPEND_RATIO_MAX,
+    ),
+    4,
+  );
+  const buffer = round(
+    income *
+      clamp(
+        lognormal(rng, BUFFER_RATIO_MEDIAN, BUFFER_RATIO_SIGMA),
+        0.002,
+        0.8,
+      ),
+    2,
+  );
 
   const shocks: Shock[] = [];
   for (let m = 0; m < MONTHS_SPANNED; m++) {
@@ -47,12 +110,15 @@ function drawCustomer(rng: Rng, i: number): Customer {
     const hour = int(rng, 0, 23);
     shocks.push({
       ms: START_MS + (m - 1) * 30 * DAY_MS + day * DAY_MS + hour * HOUR_MS,
-      amount: round(income * uniform(rng, SHOCK_FRACTION_MIN, SHOCK_FRACTION_MAX), 2),
+      amount: round(
+        income * uniform(rng, SHOCK_FRACTION_MIN, SHOCK_FRACTION_MAX),
+        2,
+      ),
     });
   }
 
   return {
-    customer_id: `cust_${String(i).padStart(5, "0")}`,
+    customer_id: `cust_${String(i).padStart(5, '0')}`,
     bank: weighted(rng, bankShares),
     salary_day: Number(weighted(rng, SALARY_DAY_WEIGHTS)),
     salary_delays,
@@ -60,7 +126,10 @@ function drawCustomer(rng: Rng, i: number): Customer {
     spend_ratio,
     buffer,
     shocks,
-    churn_hazard_scale: round(clamp(lognormal(rng, 1, CHURN_HAZARD_SIGMA), 0.05, 12), 4),
+    churn_hazard_scale: round(
+      clamp(lognormal(rng, 1, CHURN_HAZARD_SIGMA), 0.05, 12),
+      4,
+    ),
   };
 }
 
@@ -69,12 +138,17 @@ function drawMandate(rng: Rng, c: Customer, i: number, endMs: number): Mandate {
     ? START_MS - int(rng, 1, PREEXISTING_AGE_DAYS_MAX) * DAY_MS
     : START_MS + int(rng, 1, 70) * DAY_MS;
   const amount = Number(weighted(rng, AMOUNT_WEIGHTS));
-  const churn = drawChurn(c.churn_hazard_scale, Math.max(created_at, START_MS), endMs, rng);
+  const churn = drawChurn(
+    c.churn_hazard_scale,
+    Math.max(created_at, START_MS),
+    endMs,
+    rng,
+  );
   return {
-    mandate_id: `mdt_${String(i).padStart(5, "0")}`,
+    mandate_id: `mdt_${String(i).padStart(5, '0')}`,
     customer_id: c.customer_id,
     created_at,
-    frequency: "monthly",
+    frequency: 'monthly',
     amount,
     max_amount: amount * MAX_AMOUNT_MULTIPLE,
     debit_day_of_month: int(rng, 1, 31),
@@ -92,8 +166,10 @@ function drawAttemptHour(rng: Rng): number {
 
 function errorCodeFor(cause: Cause, m: Mandate, rng: Rng): string {
   const key =
-    cause === "C4_CANCELLATION"
-      ? m.churn_emits_event ? "C4_EXPLICIT" : "C4_SILENT"
+    cause === 'C4_CANCELLATION'
+      ? m.churn_emits_event
+        ? 'C4_EXPLICIT'
+        : 'C4_SILENT'
       : cause;
   return weighted(rng, ERROR_CODE_WEIGHTS[key]!);
 }
@@ -133,13 +209,21 @@ export function generateWorldFull(opts: GenerateOptions = {}): World {
       const d = new Date(Date.UTC(start.year, start.month + mo, 1));
       const year = d.getUTCFullYear();
       const month = d.getUTCMonth();
-      const day = Math.min(mandate.debit_day_of_month, daysInMonth(year, month));
+      const day = Math.min(
+        mandate.debit_day_of_month,
+        daysInMonth(year, month),
+      );
       const hour = drawAttemptHour(rng);
       const minute = int(rng, 0, 59);
       const ts = istMs(year, month, day, hour, minute);
       if (ts < START_MS || ts >= endMs || ts <= mandate.created_at) continue;
 
-      if (mandate.churned_at !== null && mandate.churn_emits_event && ts >= mandate.churned_at) continue;
+      if (
+        mandate.churned_at !== null &&
+        mandate.churn_emits_event &&
+        ts >= mandate.churned_at
+      )
+        continue;
 
       const leadHours = bernoulli(rng, LATE_DISPATCH_RATE)
         ? uniform(rng, LATE_LEAD_HOURS_MIN, LATE_LEAD_HOURS_MAX)
@@ -151,16 +235,18 @@ export function generateWorldFull(opts: GenerateOptions = {}): World {
       const { balance, days_since_salary } = balanceAt(customer, ts);
 
       const blockers: Cause[] = [];
-      if (mandate.churned_at !== null && ts >= mandate.churned_at) blockers.push("C4_CANCELLATION");
-      if (leadHours < NOTIFY_MIN_LEAD_HOURS || !delivered) blockers.push("C2_NOTIFICATION_FAIL");
-      if (restricted) blockers.push("C1_EXECUTION_WINDOW");
-      if (mandate.amount > balance) blockers.push("C3_BALANCE_SHORTFALL");
+      if (mandate.churned_at !== null && ts >= mandate.churned_at)
+        blockers.push('C4_CANCELLATION');
+      if (leadHours < NOTIFY_MIN_LEAD_HOURS || !delivered)
+        blockers.push('C2_NOTIFICATION_FAIL');
+      if (restricted) blockers.push('C1_EXECUTION_WINDOW');
+      if (mandate.amount > balance) blockers.push('C3_BALANCE_SHORTFALL');
 
       const cause = blockers[0] ?? null;
       const error_code = cause ? errorCodeFor(cause, mandate, codeRng) : null;
 
       records.push({
-        attempt_id: `att_${String(records.length).padStart(6, "0")}`,
+        attempt_id: `att_${String(records.length).padStart(6, '0')}`,
         mandate_id: mandate.mandate_id,
         customer_id: customer.customer_id,
         timestamp: toIso(ts),
@@ -168,7 +254,7 @@ export function generateWorldFull(opts: GenerateOptions = {}): World {
         bank: customer.bank,
         amount: mandate.amount,
         max_amount: mandate.max_amount,
-        frequency: "monthly",
+        frequency: 'monthly',
         mandate_created_at: toIso(mandate.created_at),
         mandate_age_days: Math.floor((ts - mandate.created_at) / DAY_MS),
         attempt_index: attemptIndex,
@@ -186,7 +272,8 @@ export function generateWorldFull(opts: GenerateOptions = {}): World {
           days_since_salary: round(days_since_salary, 2),
           notification_delivered_by_bank: delivered,
           bank_outage_active: isBankOutage(customer.bank, dispatchMs),
-          churned_at: mandate.churned_at === null ? null : toIso(mandate.churned_at),
+          churned_at:
+            mandate.churned_at === null ? null : toIso(mandate.churned_at),
           churn_emits_event: mandate.churn_emits_event,
           income: customer.income,
           spend_ratio: customer.spend_ratio,

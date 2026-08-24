@@ -1,4 +1,4 @@
-import Database from "better-sqlite3";
+import Database from 'better-sqlite3';
 
 export type Db = Database.Database;
 
@@ -49,8 +49,8 @@ CREATE TABLE IF NOT EXISTS psp_ledger (
 export function openDb(path: string): Db {
   const db = new Database(path);
 
-  db.pragma("journal_mode = WAL");
-  db.pragma("synchronous = FULL");
+  db.pragma('journal_mode = WAL');
+  db.pragma('synchronous = FULL');
   db.exec(SCHEMA);
   return db;
 }

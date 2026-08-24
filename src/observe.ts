@@ -1,6 +1,6 @@
-import { OBSERVATION_SEED, RECEIPT_VISIBLE_RATE } from "./config.ts";
-import { bernoulli, makeRng } from "./rng.ts";
-import type { WorldRecord } from "./world/types.ts";
+import { OBSERVATION_SEED, RECEIPT_VISIBLE_RATE } from './config.ts';
+import { bernoulli, makeRng } from './rng.ts';
+import type { WorldRecord } from './world/types.ts';
 
 export type PriorAttempt = {
   timestamp: string;
@@ -9,7 +9,7 @@ export type PriorAttempt = {
 };
 
 export type LifecycleEvent = {
-  type: "mandate.revoked";
+  type: 'mandate.revoked';
   timestamp: string;
 };
 
@@ -20,7 +20,7 @@ export type ObservedAttempt = {
   bank: string;
   amount: number;
   max_amount: number;
-  frequency: "monthly";
+  frequency: 'monthly';
   mandate_age_days: number;
   attempt_index: number;
   success: boolean;
@@ -28,29 +28,29 @@ export type ObservedAttempt = {
   notification: {
     dispatched_at: string;
     hours_before_debit: number;
-    receipt: "delivered" | "failed" | null;
+    receipt: 'delivered' | 'failed' | null;
   };
   prior_attempts: PriorAttempt[];
   lifecycle_events: LifecycleEvent[];
 };
 
 export const HIDDEN_KEYS = [
-  "cause",
-  "blockers",
-  "multi_cause",
-  "world",
-  "customer_id",
-  "timestamp_ms",
-  "restricted_window",
-  "balance_at_attempt",
-  "salary_day",
-  "days_since_salary",
-  "notification_delivered_by_bank",
-  "bank_outage_active",
-  "churned_at",
-  "churn_emits_event",
-  "income",
-  "spend_ratio",
+  'cause',
+  'blockers',
+  'multi_cause',
+  'world',
+  'customer_id',
+  'timestamp_ms',
+  'restricted_window',
+  'balance_at_attempt',
+  'salary_day',
+  'days_since_salary',
+  'notification_delivered_by_bank',
+  'bank_outage_active',
+  'churned_at',
+  'churn_emits_event',
+  'income',
+  'spend_ratio',
 ] as const;
 
 type HiddenKey = (typeof HIDDEN_KEYS)[number];
@@ -59,14 +59,17 @@ type AssertNever<T extends never> = T;
 type _NoLeakTopLevel = AssertNever<Extract<keyof ObservedAttempt, HiddenKey>>;
 type _NoLeakNested = AssertNever<
   Extract<
-    | keyof ObservedAttempt["notification"]
+    | keyof ObservedAttempt['notification']
     | keyof PriorAttempt
     | keyof LifecycleEvent,
     HiddenKey
   >
 >;
 
-export function observe(world: WorldRecord[], seed: number = OBSERVATION_SEED): ObservedAttempt[] {
+export function observe(
+  world: WorldRecord[],
+  seed: number = OBSERVATION_SEED,
+): ObservedAttempt[] {
   const rng = makeRng(seed);
   const priors = new Map<string, PriorAttempt[]>();
   const out: ObservedAttempt[] = [];
@@ -76,13 +79,13 @@ export function observe(world: WorldRecord[], seed: number = OBSERVATION_SEED): 
 
     const receipt = bernoulli(rng, RECEIPT_VISIBLE_RATE)
       ? w.world.notification_delivered_by_bank
-        ? "delivered"
-        : "failed"
+        ? 'delivered'
+        : 'failed'
       : null;
 
     const lifecycle_events: LifecycleEvent[] =
       w.world.churned_at !== null && w.world.churn_emits_event
-        ? [{ type: "mandate.revoked", timestamp: w.world.churned_at }]
+        ? [{ type: 'mandate.revoked', timestamp: w.world.churned_at }]
         : [];
 
     out.push({
@@ -110,7 +113,11 @@ export function observe(world: WorldRecord[], seed: number = OBSERVATION_SEED): 
       lifecycle_events,
     });
 
-    prior.push({ timestamp: w.timestamp, success: w.success, error_code: w.error_code });
+    prior.push({
+      timestamp: w.timestamp,
+      success: w.success,
+      error_code: w.error_code,
+    });
     priors.set(w.mandate_id, prior);
   }
 

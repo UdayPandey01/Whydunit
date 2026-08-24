@@ -1,5 +1,9 @@
-import { COST_RETRY_RUPEES, DEFAULT_COST_RATIO, P_RETRY_SUCCEEDS } from "./config.ts";
-import type { Cause } from "./world/types.ts";
+import {
+  COST_RETRY_RUPEES,
+  DEFAULT_COST_RATIO,
+  P_RETRY_SUCCEEDS,
+} from './config.ts';
+import type { Cause } from './world/types.ts';
 
 export function stopThreshold(ratio: number = DEFAULT_COST_RATIO): number {
   return ratio / (ratio + 1);
@@ -14,9 +18,9 @@ export function stopThresholdFor(
 }
 
 export const RETRYABLE: Cause[] = [
-  "C1_EXECUTION_WINDOW",
-  "C2_NOTIFICATION_FAIL",
-  "C3_BALANCE_SHORTFALL",
+  'C1_EXECUTION_WINDOW',
+  'C2_NOTIFICATION_FAIL',
+  'C3_BALANCE_SHORTFALL',
 ];
 
 export function decideCause(
@@ -24,9 +28,9 @@ export function decideCause(
   threshold: number,
 ): { cause: Cause; stop: boolean } {
   if ((proba.C4_CANCELLATION ?? 0) >= threshold) {
-    return { cause: "C4_CANCELLATION", stop: true };
+    return { cause: 'C4_CANCELLATION', stop: true };
   }
-  let best: Cause = "C3_BALANCE_SHORTFALL";
+  let best: Cause = 'C3_BALANCE_SHORTFALL';
   let bestP = -1;
   for (const c of RETRYABLE) {
     const p = proba[c] ?? 0;
@@ -45,5 +49,8 @@ export function retryBudgetFor(
   pSuccess: number = P_RETRY_SUCCEEDS,
 ): number {
   const breakeven = retryCostRupees / Math.max(pSuccess, 1e-9);
-  return Math.max(0, Math.min(maxRetries, Math.floor(amountRupees / breakeven)));
+  return Math.max(
+    0,
+    Math.min(maxRetries, Math.floor(amountRupees / breakeven)),
+  );
 }

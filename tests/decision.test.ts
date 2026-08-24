@@ -1,8 +1,13 @@
-import test from "node:test";
-import assert from "node:assert/strict";
-import { COST_RETRY_RUPEES } from "../src/config.ts";
-import { decideCause, retryBudgetFor, stopThreshold, stopThresholdFor } from "../src/decision.ts";
-import type { Cause } from "../src/world/types.ts";
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { COST_RETRY_RUPEES } from '../src/config.ts';
+import {
+  decideCause,
+  retryBudgetFor,
+  stopThreshold,
+  stopThresholdFor,
+} from '../src/decision.ts';
+import type { Cause } from '../src/world/types.ts';
 
 const proba = (pC4: number): Record<Cause, number> => ({
   C1_EXECUTION_WINDOW: 0.01,
@@ -11,8 +16,7 @@ const proba = (pC4: number): Record<Cause, number> => ({
   C4_CANCELLATION: pC4,
 });
 
-test("the amount-aware threshold scales with what a wrongful stop forfeits", () => {
-
+test('the amount-aware threshold scales with what a wrongful stop forfeits', () => {
   assert.ok(stopThresholdFor(149) < stopThresholdFor(999));
   assert.ok(stopThresholdFor(999) < stopThresholdFor(4999));
   assert.ok(stopThresholdFor(4999) < 1);
@@ -24,19 +28,32 @@ test("the amount-aware threshold scales with what a wrongful stop forfeits", () 
   assert.equal(stopThresholdFor(-5), 1);
 });
 
-test("a small mandate is abandoned at a belief that would keep a large one alive", () => {
+test('a small mandate is abandoned at a belief that would keep a large one alive', () => {
   const belief = 0.9;
-  assert.equal(decideCause(proba(belief), stopThresholdFor(149)).stop, true, "₹149 should be let go");
-  assert.equal(decideCause(proba(belief), stopThresholdFor(4999)).stop, false, "₹4,999 should be fought for");
+  assert.equal(
+    decideCause(proba(belief), stopThresholdFor(149)).stop,
+    true,
+    '₹149 should be let go',
+  );
+  assert.equal(
+    decideCause(proba(belief), stopThresholdFor(4999)).stop,
+    false,
+    '₹4,999 should be fought for',
+  );
 
   const flat = stopThreshold();
-  assert.equal(decideCause(proba(belief), flat).stop, decideCause(proba(belief), flat).stop);
+  assert.equal(
+    decideCause(proba(belief), flat).stop,
+    decideCause(proba(belief), flat).stop,
+  );
 });
 
-test("amount-weighting is inert against a predictor with degenerate probabilities", () => {
+test('amount-weighting is inert against a predictor with degenerate probabilities', () => {
   const certain: Record<Cause, number> = {
-    C1_EXECUTION_WINDOW: 0, C2_NOTIFICATION_FAIL: 0,
-    C3_BALANCE_SHORTFALL: 0, C4_CANCELLATION: 1,
+    C1_EXECUTION_WINDOW: 0,
+    C2_NOTIFICATION_FAIL: 0,
+    C3_BALANCE_SHORTFALL: 0,
+    C4_CANCELLATION: 1,
   };
 
   for (const v of [149, 499, 4999]) {
@@ -50,12 +67,15 @@ test("amount-weighting is inert against a predictor with degenerate probabilitie
   );
 });
 
-test("retry budget is bounded by expected return, and by the cycle limit", () => {
-
+test('retry budget is bounded by expected return, and by the cycle limit', () => {
   assert.equal(retryBudgetFor(149, 3, 33, 0.33), 1);
   assert.equal(retryBudgetFor(299, 3, 33, 0.33), 2);
-  assert.equal(retryBudgetFor(4999, 3, 33, 0.33), 3, "never exceeds the per-cycle cap");
-  assert.equal(retryBudgetFor(10, 3, 33, 0.33), 0, "not worth a single retry");
+  assert.equal(
+    retryBudgetFor(4999, 3, 33, 0.33),
+    3,
+    'never exceeds the per-cycle cap',
+  );
+  assert.equal(retryBudgetFor(10, 3, 33, 0.33), 0, 'not worth a single retry');
 
   assert.ok(retryBudgetFor(149, 3, 5, 0.33) > retryBudgetFor(149, 3, 80, 0.33));
 });

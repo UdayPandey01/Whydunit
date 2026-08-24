@@ -1,6 +1,6 @@
-import { CHURN_DAILY_HAZARD, CHURN_EVENT_EMIT_RATE } from "../config.ts";
-import { DAY_MS, HOUR_MS } from "../time.ts";
-import type { Rng } from "../rng.ts";
+import { CHURN_DAILY_HAZARD, CHURN_EVENT_EMIT_RATE } from '../config.ts';
+import { DAY_MS, HOUR_MS } from '../time.ts';
+import type { Rng } from '../rng.ts';
 
 export function drawChurn(
   hazardScale: number,

@@ -1,5 +1,5 @@
-import { RESTRICTED_END_HOUR, RESTRICTED_START_HOUR } from "./config.ts";
-import { daysInMonth, istMs, istParts } from "./time.ts";
+import { RESTRICTED_END_HOUR, RESTRICTED_START_HOUR } from './config.ts';
+import { daysInMonth, istMs, istParts } from './time.ts';
 
 export const SAFE_HOUR = 14;
 
@@ -24,5 +24,5 @@ export function nextMonthDay(ms: number, day: number): number {
 
 export function cycleOf(ms: number): string {
   const p = istParts(ms);
-  return `${p.year}-${String(p.month + 1).padStart(2, "0")}`;
+  return `${p.year}-${String(p.month + 1).padStart(2, '0')}`;
 }

@@ -1,4 +1,4 @@
-import { istMs } from "./time.ts";
+import { istMs } from './time.ts';
 
 export const SEED = 20260903;
 export const OBSERVATION_SEED = SEED + 1;
@@ -22,12 +22,33 @@ export const RESTRICTED_END_HOUR = 13;
 export const WINDOW_HIT_RATE = 0.042;
 export const RESTRICTED_HOURS = [10, 11, 12];
 export const SAFE_HOUR_WEIGHTS: Record<string, number> = {
-  "1": 3, "2": 8, "3": 9, "4": 5, "5": 4, "6": 6, "7": 7, "8": 6, "9": 5,
-  "13": 4, "14": 5, "15": 5, "16": 4, "17": 4, "18": 5, "19": 5, "20": 4,
-  "21": 3, "22": 2, "23": 1, "0": 2,
+  '1': 3,
+  '2': 8,
+  '3': 9,
+  '4': 5,
+  '5': 4,
+  '6': 6,
+  '7': 7,
+  '8': 6,
+  '9': 5,
+  '13': 4,
+  '14': 5,
+  '15': 5,
+  '16': 4,
+  '17': 4,
+  '18': 5,
+  '19': 5,
+  '20': 4,
+  '21': 3,
+  '22': 2,
+  '23': 1,
+  '0': 2,
 };
 
-export const BANKS: Record<string, { share: number; notify_reliability: number }> = {
+export const BANKS: Record<
+  string,
+  { share: number; notify_reliability: number }
+> = {
   HDFC: { share: 0.28, notify_reliability: 0.995 },
   ICICI: { share: 0.22, notify_reliability: 0.992 },
   SBI: { share: 0.24, notify_reliability: 0.978 },
@@ -43,18 +64,29 @@ export const LATE_LEAD_HOURS_MAX = 23;
 export const NOTIFY_MIN_LEAD_HOURS = 24;
 
 export const NOTIFICATION_OUTAGES: {
-  bank: string; start_day: number; start_hour: number; end_day: number; end_hour: number;
+  bank: string;
+  start_day: number;
+  start_hour: number;
+  end_day: number;
+  end_hour: number;
 }[] = [
-  { bank: "HDFC", start_day: 12, start_hour: 9, end_day: 12, end_hour: 11 },
-  { bank: "SBI", start_day: 33, start_hour: 18, end_day: 34, end_hour: 7 },
-  { bank: "ICICI", start_day: 47, start_hour: 2, end_day: 47, end_hour: 20 },
-  { bank: "SBI", start_day: 61, start_hour: 0, end_day: 61, end_hour: 14 },
-  { bank: "AXIS", start_day: 74, start_hour: 12, end_day: 75, end_hour: 4 },
+  { bank: 'HDFC', start_day: 12, start_hour: 9, end_day: 12, end_hour: 11 },
+  { bank: 'SBI', start_day: 33, start_hour: 18, end_day: 34, end_hour: 7 },
+  { bank: 'ICICI', start_day: 47, start_hour: 2, end_day: 47, end_hour: 20 },
+  { bank: 'SBI', start_day: 61, start_hour: 0, end_day: 61, end_hour: 14 },
+  { bank: 'AXIS', start_day: 74, start_hour: 12, end_day: 75, end_hour: 4 },
 ];
 export const OUTAGE_DELIVERY_RATE = 0.04;
 
 export const SALARY_DAY_WEIGHTS: Record<string, number> = {
-  "1": 40, "2": 8, "3": 5, "5": 8, "7": 18, "10": 10, "15": 7, "25": 4,
+  '1': 40,
+  '2': 8,
+  '3': 5,
+  '5': 8,
+  '7': 18,
+  '10': 10,
+  '15': 7,
+  '25': 4,
 };
 export const SALARY_DELAY_PROB = 0.14;
 export const SALARY_DELAY_MAX_DAYS = 3;
@@ -78,8 +110,18 @@ export const CHURN_EVENT_EMIT_RATE = 0.6;
 export const PREEXISTING_RATE = 0.92;
 export const PREEXISTING_AGE_DAYS_MAX = 400;
 export const AMOUNT_WEIGHTS: Record<string, number> = {
-  "149": 14, "199": 16, "249": 9, "299": 14, "399": 10, "499": 12,
-  "599": 6, "799": 5, "999": 7, "1499": 3, "2499": 2, "4999": 2,
+  '149': 14,
+  '199': 16,
+  '249': 9,
+  '299': 14,
+  '399': 10,
+  '499': 12,
+  '599': 6,
+  '799': 5,
+  '999': 7,
+  '1499': 3,
+  '2499': 2,
+  '4999': 2,
 };
 export const MAX_AMOUNT_MULTIPLE = 2;
 

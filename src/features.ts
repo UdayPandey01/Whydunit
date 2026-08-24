@@ -1,6 +1,6 @@
-import { RESTRICTED_END_HOUR, RESTRICTED_START_HOUR } from "./config.ts";
-import type { ObservedAttempt } from "./observe.ts";
-import { DAY_MS, HOUR_MS, istParts, istWeekday, round } from "./time.ts";
+import { RESTRICTED_END_HOUR, RESTRICTED_START_HOUR } from './config.ts';
+import type { ObservedAttempt } from './observe.ts';
+import { DAY_MS, HOUR_MS, istParts, istWeekday, round } from './time.ts';
 
 export type FeatureRow = {
   attempt_id: string;
@@ -15,21 +15,40 @@ const FLEET_WINDOW_MS = 14 * DAY_MS;
 const BANK_WINDOW_MS = 7 * DAY_MS;
 const BURST_WINDOW_MS = 24 * HOUR_MS;
 const BURST_BASELINE_MS = 30 * DAY_MS;
-const DECLINE_CODES = ["Z9", "U30", "U69", "ZM", "ZA"];
+const DECLINE_CODES = ['Z9', 'U30', 'U69', 'ZM', 'ZA'];
 
-type Point = { ms: number; failed: number; receipt_seen: number; receipt_failed: number };
+type Point = {
+  ms: number;
+  failed: number;
+  receipt_seen: number;
+  receipt_failed: number;
+};
 
-type Index = { ms: number[]; n: number[]; failed: number[]; seen: number[]; recv_failed: number[] };
+type Index = {
+  ms: number[];
+  n: number[];
+  failed: number[];
+  seen: number[];
+  recv_failed: number[];
+};
 
 function buildIndex(points: Point[]): Index {
   const sorted = [...points].sort((a, b) => a.ms - b.ms);
-  const idx: Index = { ms: [], n: [0], failed: [0], seen: [0], recv_failed: [0] };
+  const idx: Index = {
+    ms: [],
+    n: [0],
+    failed: [0],
+    seen: [0],
+    recv_failed: [0],
+  };
   for (const p of sorted) {
     idx.ms.push(p.ms);
     idx.n.push(idx.n[idx.n.length - 1]! + 1);
     idx.failed.push(idx.failed[idx.failed.length - 1]! + p.failed);
     idx.seen.push(idx.seen[idx.seen.length - 1]! + p.receipt_seen);
-    idx.recv_failed.push(idx.recv_failed[idx.recv_failed.length - 1]! + p.receipt_failed);
+    idx.recv_failed.push(
+      idx.recv_failed[idx.recv_failed.length - 1]! + p.receipt_failed,
+    );
   }
   return idx;
 }
@@ -64,7 +83,7 @@ function toPoint(o: ObservedAttempt, ms: number): Point {
     ms,
     failed: o.success ? 0 : 1,
     receipt_seen: o.notification.receipt === null ? 0 : 1,
-    receipt_failed: o.notification.receipt === "failed" ? 1 : 0,
+    receipt_failed: o.notification.receipt === 'failed' ? 1 : 0,
   };
 }
 
@@ -74,7 +93,8 @@ function excess(a: number | null, b: number | null): number | null {
 
 function temporal(ms: number, dayIndex: number): Record<string, number | null> {
   const p = istParts(ms);
-  const restricted = p.hour >= RESTRICTED_START_HOUR && p.hour < RESTRICTED_END_HOUR;
+  const restricted =
+    p.hour >= RESTRICTED_START_HOUR && p.hour < RESTRICTED_END_HOUR;
   return {
     hour: p.hour,
     minute_of_day: p.hour * 60 + p.minute,
@@ -83,21 +103,32 @@ function temporal(ms: number, dayIndex: number): Record<string, number | null> {
     day_index: dayIndex,
 
     in_restricted_window: restricted ? 1 : 0,
-    hours_into_restricted_window: restricted ? round(p.hour - RESTRICTED_START_HOUR + p.minute / 60, 3) : 0,
+    hours_into_restricted_window: restricted
+      ? round(p.hour - RESTRICTED_START_HOUR + p.minute / 60, 3)
+      : 0,
   };
 }
 
-function clockRelative(ms: number, hourIdx: Index, fleetIdx: Index): Record<string, number | null> {
+function clockRelative(
+  ms: number,
+  hourIdx: Index,
+  fleetIdx: Index,
+): Record<string, number | null> {
   const hour = rangeStats(hourIdx, ms - FLEET_WINDOW_MS, ms);
   const fleet = rangeStats(fleetIdx, ms - FLEET_WINDOW_MS, ms);
   return {
-    hour_fail_rate_14d: hour.fail_rate === null ? null : round(hour.fail_rate, 5),
+    hour_fail_rate_14d:
+      hour.fail_rate === null ? null : round(hour.fail_rate, 5),
     hour_fail_excess_14d: excess(hour.fail_rate, fleet.fail_rate),
     hour_n_14d: hour.n,
   };
 }
 
-function bankRelative(ms: number, bankIdx: Index, fleetIdx: Index): Record<string, number | null> {
+function bankRelative(
+  ms: number,
+  bankIdx: Index,
+  fleetIdx: Index,
+): Record<string, number | null> {
   const wk = rangeStats(bankIdx, ms - BANK_WINDOW_MS, ms);
   const day = rangeStats(bankIdx, ms - BURST_WINDOW_MS, ms);
   const base = rangeStats(bankIdx, ms - BURST_BASELINE_MS, ms);
@@ -105,7 +136,13 @@ function bankRelative(ms: number, bankIdx: Index, fleetIdx: Index): Record<strin
   const fleetDay = rangeStats(fleetIdx, ms - BURST_WINDOW_MS, ms);
 
   let burstZ: number | null = null;
-  if (day.n > 0 && base.fail_rate !== null && base.fail_rate > 0 && base.fail_rate < 1 && day.fail_rate !== null) {
+  if (
+    day.n > 0 &&
+    base.fail_rate !== null &&
+    base.fail_rate > 0 &&
+    base.fail_rate < 1 &&
+    day.fail_rate !== null
+  ) {
     const se = Math.sqrt((base.fail_rate * (1 - base.fail_rate)) / day.n);
     burstZ = se > 0 ? round((day.fail_rate - base.fail_rate) / se, 4) : null;
   }
@@ -115,12 +152,17 @@ function bankRelative(ms: number, bankIdx: Index, fleetIdx: Index): Record<strin
     bank_fail_rate_24h: day.fail_rate === null ? null : round(day.fail_rate, 5),
     bank_fail_excess_24h: excess(day.fail_rate, fleetDay.fail_rate),
     bank_burst_z: burstZ,
-    bank_receipt_fail_rate_24h: day.receipt_fail_rate === null ? null : round(day.receipt_fail_rate, 5),
+    bank_receipt_fail_rate_24h:
+      day.receipt_fail_rate === null ? null : round(day.receipt_fail_rate, 5),
     bank_n_24h: day.n,
   };
 }
 
-function customerRelative(o: ObservedAttempt, fleetIdx: Index, ms: number): Record<string, number | null> {
+function customerRelative(
+  o: ObservedAttempt,
+  fleetIdx: Index,
+  ms: number,
+): Record<string, number | null> {
   const priors = o.prior_attempts;
   const successes = priors.filter((p) => p.success);
   const last = successes[successes.length - 1];
@@ -134,7 +176,10 @@ function customerRelative(o: ObservedAttempt, fleetIdx: Index, ms: number): Reco
     mandate_prior_n: priors.length,
     mandate_prior_success_rate: rate,
     mandate_success_excess: excess(rate, fleetSuccess),
-    days_since_last_success: last === undefined ? null : round((ms - Date.parse(last.timestamp)) / DAY_MS, 3),
+    days_since_last_success:
+      last === undefined
+        ? null
+        : round((ms - Date.parse(last.timestamp)) / DAY_MS, 3),
   };
 }
 
@@ -143,14 +188,23 @@ function notification(o: ObservedAttempt): Record<string, number | null> {
   return {
     notify_lead_hours: lead,
     notify_lead_under_24: lead < 24 ? 1 : 0,
-    notify_dispatch_hour: istParts(Date.parse(o.notification.dispatched_at)).hour,
+    notify_dispatch_hour: istParts(Date.parse(o.notification.dispatched_at))
+      .hour,
 
-    receipt_delivered: o.notification.receipt === null ? null : o.notification.receipt === "delivered" ? 1 : 0,
+    receipt_delivered:
+      o.notification.receipt === null
+        ? null
+        : o.notification.receipt === 'delivered'
+          ? 1
+          : 0,
     receipt_missing: o.notification.receipt === null ? 1 : 0,
   };
 }
 
-function history(o: ObservedAttempt, ms: number): Record<string, number | null> {
+function history(
+  o: ObservedAttempt,
+  ms: number,
+): Record<string, number | null> {
   const priors = o.prior_attempts;
   const failures = priors.filter((p) => !p.success);
   const failHours = failures.map((p) => istParts(Date.parse(p.timestamp)).hour);
@@ -170,12 +224,17 @@ function history(o: ObservedAttempt, ms: number): Record<string, number | null> 
     attempt_index: o.attempt_index,
     mandate_age_days: o.mandate_age_days,
     consecutive_prior_failures: consecutive,
-    all_prior_failed: priors.length === 0 ? null : failures.length === priors.length ? 1 : 0,
+    all_prior_failed:
+      priors.length === 0 ? null : failures.length === priors.length ? 1 : 0,
     prior_distinct_fail_hours: new Set(failHours).size,
-    prior_fail_hour_spread: failHours.length < 2 ? null : Math.max(...failHours) - Math.min(...failHours),
+    prior_fail_hour_spread:
+      failHours.length < 2
+        ? null
+        : Math.max(...failHours) - Math.min(...failHours),
     prior_distinct_error_codes: new Set(failures.map((p) => p.error_code)).size,
     revoked_before_attempt: revoked === undefined ? 0 : 1,
-    hours_since_revoke: revoked === undefined ? null : round((ms - revoked) / HOUR_MS, 3),
+    hours_since_revoke:
+      revoked === undefined ? null : round((ms - revoked) / HOUR_MS, 3),
   };
 }
 
@@ -187,7 +246,9 @@ function decline(o: ObservedAttempt): Record<string, number | null> {
 
 export function computeFeatures(observations: ObservedAttempt[]): FeatureRow[] {
   const withMs = observations.map((o) => ({ o, ms: Date.parse(o.timestamp) }));
-  withMs.sort((a, b) => a.ms - b.ms || a.o.attempt_id.localeCompare(b.o.attempt_id));
+  withMs.sort(
+    (a, b) => a.ms - b.ms || a.o.attempt_id.localeCompare(b.o.attempt_id),
+  );
   const originMs = withMs.length === 0 ? 0 : withMs[0]!.ms;
 
   const fleetPoints: Point[] = [];
@@ -231,11 +292,11 @@ export function computeFeatures(observations: ObservedAttempt[]): FeatureRow[] {
 }
 
 export const FEATURE_FAMILIES: Record<string, string> = {
-  temporal: "raw clock position of the attempt (C1)",
-  clock_relative: "this hour vs the fleet, trailing 14d (C1)",
-  bank_relative: "this bank vs the fleet, trailing 24h/7d/30d burst z (C2)",
-  customer_relative: "this mandate vs its own history and the fleet (C3)",
-  notification: "dispatch lead and partial delivery receipts (C2)",
-  history: "prior-failure invariance probes and revoke webhooks (C4)",
+  temporal: 'raw clock position of the attempt (C1)',
+  clock_relative: 'this hour vs the fleet, trailing 14d (C1)',
+  bank_relative: 'this bank vs the fleet, trailing 24h/7d/30d burst z (C2)',
+  customer_relative: 'this mandate vs its own history and the fleet (C3)',
+  notification: 'dispatch lead and partial delivery receipts (C2)',
+  history: 'prior-failure invariance probes and revoke webhooks (C4)',
   decline: "the attempt's own decline code, one-hot",
 };

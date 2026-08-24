@@ -1,8 +1,8 @@
 export type Cause =
-  | "C1_EXECUTION_WINDOW"
-  | "C2_NOTIFICATION_FAIL"
-  | "C3_BALANCE_SHORTFALL"
-  | "C4_CANCELLATION";
+  | 'C1_EXECUTION_WINDOW'
+  | 'C2_NOTIFICATION_FAIL'
+  | 'C3_BALANCE_SHORTFALL'
+  | 'C4_CANCELLATION';
 
 export type Shock = { ms: number; amount: number };
 
@@ -22,7 +22,7 @@ export type Mandate = {
   mandate_id: string;
   customer_id: string;
   created_at: number;
-  frequency: "monthly";
+  frequency: 'monthly';
   amount: number;
   max_amount: number;
   debit_day_of_month: number;
@@ -39,7 +39,7 @@ export type WorldRecord = {
   bank: string;
   amount: number;
   max_amount: number;
-  frequency: "monthly";
+  frequency: 'monthly';
   mandate_created_at: string;
   mandate_age_days: number;
   attempt_index: number;

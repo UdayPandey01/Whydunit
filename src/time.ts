@@ -14,7 +14,13 @@ export function istParts(ms: number) {
   };
 }
 
-export function istMs(year: number, month: number, day: number, hour = 0, minute = 0): number {
+export function istMs(
+  year: number,
+  month: number,
+  day: number,
+  hour = 0,
+  minute = 0,
+): number {
   return Date.UTC(year, month, day, hour, minute) - IST_OFFSET_MS;
 }
 
@@ -27,7 +33,7 @@ export function daysInMonth(year: number, month: number): number {
 }
 
 export function toIso(ms: number): string {
-  return new Date(ms + IST_OFFSET_MS).toISOString().slice(0, 19) + "+05:30";
+  return new Date(ms + IST_OFFSET_MS).toISOString().slice(0, 19) + '+05:30';
 }
 
 export function round(x: number, places: number): number {

@@ -1,6 +1,11 @@
-import { BANKS, NOTIFICATION_OUTAGES, OUTAGE_DELIVERY_RATE, START_MS } from "../config.ts";
-import { DAY_MS, HOUR_MS } from "../time.ts";
-import type { Rng } from "../rng.ts";
+import {
+  BANKS,
+  NOTIFICATION_OUTAGES,
+  OUTAGE_DELIVERY_RATE,
+  START_MS,
+} from '../config.ts';
+import { DAY_MS, HOUR_MS } from '../time.ts';
+import type { Rng } from '../rng.ts';
 
 const OUTAGES = NOTIFICATION_OUTAGES.map((o) => ({
   bank: o.bank,
@@ -12,7 +17,11 @@ export function isBankOutage(bank: string, ms: number): boolean {
   return OUTAGES.some((o) => o.bank === bank && ms >= o.start && ms < o.end);
 }
 
-export function wasDeliveredByBank(bank: string, dispatchMs: number, rng: Rng): boolean {
+export function wasDeliveredByBank(
+  bank: string,
+  dispatchMs: number,
+  rng: Rng,
+): boolean {
   const p = isBankOutage(bank, dispatchMs)
     ? OUTAGE_DELIVERY_RATE
     : (BANKS[bank]?.notify_reliability ?? 0.99);

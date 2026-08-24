@@ -1,32 +1,38 @@
-import { computeFeatures } from "../src/features.ts";
-import { observe } from "../src/observe.ts";
-import { hash32 } from "../src/rng.ts";
-import type { AgentOptions, WorkItem } from "../src/agent/agent.ts";
-import { SimulatedPsp } from "../src/psp/simulated.ts";
-import type { Cause } from "../src/world/types.ts";
+import { computeFeatures } from '../src/features.ts';
+import { observe } from '../src/observe.ts';
+import { hash32 } from '../src/rng.ts';
+import type { AgentOptions, WorkItem } from '../src/agent/agent.ts';
+import { SimulatedPsp } from '../src/psp/simulated.ts';
+import type { Cause } from '../src/world/types.ts';
 
 function ruleCause(f: Record<string, number | null>): Cause {
-  if (f.revoked_before_attempt === 1) return "C4_CANCELLATION";
-  if (f.receipt_delivered === 0 || f.notify_lead_under_24 === 1) return "C2_NOTIFICATION_FAIL";
-  if (f.in_restricted_window === 1) return "C1_EXECUTION_WINDOW";
-  return "C3_BALANCE_SHORTFALL";
+  if (f.revoked_before_attempt === 1) return 'C4_CANCELLATION';
+  if (f.receipt_delivered === 0 || f.notify_lead_under_24 === 1)
+    return 'C2_NOTIFICATION_FAIL';
+  if (f.in_restricted_window === 1) return 'C1_EXECUTION_WINDOW';
+  return 'C3_BALANCE_SHORTFALL';
 }
 
 function probaFor(cause: Cause): Record<Cause, number> {
   return {
-    C1_EXECUTION_WINDOW: cause === "C1_EXECUTION_WINDOW" ? 0.97 : 0.01,
-    C2_NOTIFICATION_FAIL: cause === "C2_NOTIFICATION_FAIL" ? 0.97 : 0.01,
-    C3_BALANCE_SHORTFALL: cause === "C3_BALANCE_SHORTFALL" ? 0.97 : 0.01,
-    C4_CANCELLATION: cause === "C4_CANCELLATION" ? 0.97 : 0.01,
+    C1_EXECUTION_WINDOW: cause === 'C1_EXECUTION_WINDOW' ? 0.97 : 0.01,
+    C2_NOTIFICATION_FAIL: cause === 'C2_NOTIFICATION_FAIL' ? 0.97 : 0.01,
+    C3_BALANCE_SHORTFALL: cause === 'C3_BALANCE_SHORTFALL' ? 0.97 : 0.01,
+    C4_CANCELLATION: cause === 'C4_CANCELLATION' ? 0.97 : 0.01,
   };
 }
 
-export function buildFixture(seed = 31, mandates = 200): Omit<AgentOptions, "dbPath" | "crashAfter"> {
+export function buildFixture(
+  seed = 31,
+  mandates = 200,
+): Omit<AgentOptions, 'dbPath' | 'crashAfter'> {
   const psp = new SimulatedPsp({ seed, mandates });
   const { records } = psp.world();
   const observations = observe(records, seed + 1);
   const obsById = new Map(observations.map((o) => [o.attempt_id, o]));
-  const featById = new Map(computeFeatures(observations).map((r) => [r.attempt_id, r.features]));
+  const featById = new Map(
+    computeFeatures(observations).map((r) => [r.attempt_id, r.features]),
+  );
 
   const work: WorkItem[] = records
     .filter((r) => !r.success)
