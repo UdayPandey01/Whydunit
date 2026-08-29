@@ -370,8 +370,6 @@ Python 3.11 + scikit-learn as a script, not a service · SQLite for agent runtim
 
 ## Further reading
 
-- **[DESIGN.md](DESIGN.md)** — the live map: every module, every key decision and its
-  reason, the full Razorpay gap table, and what is deliberately not built.
 - **[INCIDENTS.md](INCIDENTS.md)** — thirteen real failures, written when they happened:
   symptom → first hypothesis → the diagnostic that disproved it → root cause → fix and
   what it traded. Including an abstention rule that made the exception queue *worse* than
